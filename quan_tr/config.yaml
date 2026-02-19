@@ -1,0 +1,110 @@
+# QuanTr 配置文件
+# 注意：包含敏感信息的字段请在实际使用时填写，不要提交到版本控制
+
+# 数据源配置
+data_sources:
+  akshare:
+    enabled: true
+    rate_limit: 10  # 每秒请求限制
+    timeout: 30  # 请求超时时间(秒)
+    retry_times: 3  # 重试次数
+    
+  yfinance:
+    enabled: true
+    timeout: 30
+    retry_times: 3
+    proxy_enabled: false  # 是否使用代理
+    # proxy: "http://proxy.example.com:8080"  # 代理地址
+    
+  eastmoney:
+    enabled: true
+    use_proxy: false
+    timeout: 30
+    # 东方财富可能需要验证码，建议使用AKshare作为主要数据源
+    
+  ptrade:
+    enabled: false  # 需要交易账户，默认禁用
+    username: ""  # Ptrade账号
+    password: ""  # Ptrade密码
+    broker: ""  # 券商代码
+    
+  tushare:
+    enabled: false  # 需要API token
+    token: ""  # Tushare Pro token
+    timeout: 30
+
+# API密钥配置（敏感信息）
+api_keys:
+  # 阿里云搜索API
+  aliyun_search:
+    enabled: false
+    access_key_id: ""
+    access_key_secret: ""
+    endpoint: "opensearch.cn-hangzhou.aliyuncs.com"
+    
+  # 新闻API（可选）
+  news_api:
+    enabled: false
+    provider: "newsapi"  # newsapi、bing、google等
+    api_key: ""
+    
+  # 情绪分析API（可选）
+  sentiment_api:
+    enabled: false
+    provider: "meaningcloud"  # meaningcloud、monkeylearn等
+    api_key: ""
+    
+  # 股票数据API（备用）
+  stock_data_api:
+    enabled: false
+    provider: "alphavantage"  # alphavantage、iexcloud等
+    api_key: ""
+
+# 分析参数配置
+analysis:
+  # 评分权重配置
+  scoring_weights:
+    fundamental: 0.40  # 基本面权重
+    technical: 0.30    # 技术面权重
+    risk: 0.20         # 风险权重
+    sentiment: 0.10    # 情绪权重
+    
+  # 风险阈值配置
+  risk_thresholds:
+    high_risk: 70      # 高风险阈值（0-100，越高风险越大）
+    medium_risk: 40    # 中等风险阈值
+    low_risk: 20       # 低风险阈值
+    
+  # 推荐等级阈值
+  recommendation_thresholds:
+    strong_buy: 80     # 强烈买入阈值
+    buy: 60            # 买入阈值
+    hold: 40           # 持有阈值
+    sell: 20           # 卖出阈值
+    strong_sell: 0     # 强烈卖出阈值
+    
+  # 技术分析参数
+  technical_analysis:
+    ma_periods: [5, 10, 20, 50, 100, 200]  # 移动平均线周期
+    rsi_period: 14      # RSI周期
+    macd_fast: 12       # MACD快线
+    macd_slow: 26       # MACD慢线
+    macd_signal: 9      # MACD信号线
+    bollinger_period: 20  # 布林带周期
+    bollinger_std: 2    # 布林带标准差倍数
+    
+  # 基本面分析参数
+  fundamental_analysis:
+    pe_threshold: 50    # 市盈率警告阈值
+    pb_threshold: 5     # 市净率警告阈值
+    debt_ratio_threshold: 70  # 资产负债率警告阈值(%)
+    current_ratio_threshold: 1.5  # 流动比率最低要求
+
+
+# 版本信息
+version:
+  major: 1
+  minor: 0
+  patch: 0
+  build_date: "2026-02-13"
+  compatible_with: "Python 3.8+"

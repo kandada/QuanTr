@@ -1,0 +1,563 @@
+{
+  "metadata": {
+    "analysis_date": "2026-02-19",
+    "generated_at": "2026-02-19 08:21:57",
+    "version": "1.0.0",
+    "total_stocks_analyzed": 1,
+    "analysis_type": "daily_analysis",
+    "analysis_method": "comprehensive_quantitative_analysis"
+  },
+  "summary": {
+    "market_overview": {
+      "total_market_cap": 211718567540.18,
+      "average_pe_ratio": 5.8,
+      "average_pb_ratio": 0.65,
+      "market_sentiment": "neutral",
+      "risk_level": "medium"
+    },
+    "sector_distribution": {
+      "银行": 1
+    },
+    "recommendation_summary": {
+      "buy": 1,
+      "hold": 0,
+      "sell": 0,
+      "strong_buy": 0,
+      "strong_sell": 0
+    },
+    "performance_summary": {
+      "average_score": 66.45,
+      "highest_score": 66.45,
+      "lowest_score": 66.45,
+      "top_performers": [
+        "平安银行(000001.SZ)"
+      ],
+      "bottom_performers": []
+    }
+  },
+  "stocks": [
+    {
+      "basic_info": {
+        "stock_name": "平安银行",
+        "stock_code": "000001.SZ",
+        "market": "A股",
+        "sector": "银行",
+        "sub_sector": "银行Ⅱ",
+        "company_name": "平安银行股份有限公司",
+        "listing_date": "1991-04-03",
+        "stock_type": "蓝筹股"
+      },
+      "price_info": {
+        "current_price": 10.91,
+        "previous_close": 10.85,
+        "day_change": 0.06,
+        "day_change_percent": 0.55,
+        "day_high": 11.05,
+        "day_low": 10.8,
+        "volume": 45000000,
+        "market_cap": 211718567540.18,
+        "circulating_market_cap": 211715103124.23,
+        "price_52w_high": 12.5,
+        "price_52w_low": 8.5,
+        "current_vs_52w_high": -12.72,
+        "current_vs_52w_low": 28.35
+      },
+      "fundamental_analysis": {
+        "company_overview": {
+          "industry": "银行",
+          "market_cap": 211718567540.18,
+          "current_price": 10.91,
+          "notes": "中国领先的商业银行，平安集团核心成员"
+        },
+        "industry_analysis": {
+          "sector": "金融",
+          "subsector": "银行",
+          "growth_outlook": "stable",
+          "competitive_landscape": "highly_competitive",
+          "regulatory_environment": "strict",
+          "key_drivers": [
+            "利率环境",
+            "经济增长",
+            "监管政策",
+            "数字化转型"
+          ]
+        },
+        "financial_metrics": {
+          "revenue": 180000000000.0,
+          "net_income": 45000000000.0,
+          "gross_margin": 0.0,
+          "operating_margin": 0.35,
+          "net_margin": 0.25,
+          "roe": 0.12,
+          "roa": 0.009,
+          "debt_to_equity": 0.85,
+          "current_ratio": 1.2,
+          "quick_ratio": 1.1,
+          "asset_turnover": 0.03,
+          "inventory_turnover": 0.0,
+          "receivables_turnover": 0.0,
+          "interest_coverage": 3.5
+        },
+        "valuation_metrics": {
+          "pe_ratio": 5.8,
+          "forward_pe": 5.5,
+          "pb_ratio": 0.65,
+          "ps_ratio": 1.2,
+          "ev_ebitda": 6.2,
+          "dividend_yield": 0.032,
+          "payout_ratio": 0.3,
+          "book_value_per_share": 16.78,
+          "eps": 1.88,
+          "forward_eps": 1.98
+        },
+        "growth_metrics": {
+          "revenue_growth_yoy": 0.08,
+          "net_income_growth_yoy": 0.1,
+          "eps_growth_yoy": 0.09,
+          "dividend_growth_yoy": 0.05,
+          "book_value_growth_yoy": 0.07
+        },
+        "profitability_metrics": {
+          "gross_profit_margin": 0.0,
+          "operating_profit_margin": 0.35,
+          "net_profit_margin": 0.25,
+          "return_on_equity": 0.12,
+          "return_on_assets": 0.009
+        }
+      },
+      "technical_analysis": {
+        "price_analysis": {
+          "current_price": 11.12,
+          "price_trend": "up",
+          "support_levels": [
+            10.8,
+            10.5,
+            10.2
+          ],
+          "resistance_levels": [
+            11.3,
+            11.8,
+            12.3
+          ],
+          "price_momentum": "positive",
+          "volatility": "medium"
+        },
+        "trend_indicators": {
+          "ma5": 11.02,
+          "ma10": 10.94,
+          "ma20": 10.89,
+          "ma50": 10.75,
+          "ma60": 10.7,
+          "ma120": 10.3,
+          "ma200": 9.82,
+          "trend_direction": "up",
+          "trend_strength": "medium"
+        },
+        "momentum_indicators": {
+          "rsi": 50.95,
+          "macd": 0.1047,
+          "macd_signal": 0.0768,
+          "macd_histogram": 0.0279,
+          "stochastic_k": 55.2,
+          "stochastic_d": 52.8,
+          "williams_r": -45.3
+        },
+        "volatility_indicators": {
+          "bollinger_upper": 11.5,
+          "bollinger_middle": 10.89,
+          "bollinger_lower": 10.27,
+          "bollinger_width": 1.23,
+          "atr": 0.35,
+          "standard_deviation": 0.28
+        },
+        "volume_indicators": {
+          "volume": 45000000,
+          "volume_trend": "stable",
+          "volume_ratio": 1.2,
+          "obv": 125000000,
+          "money_flow_index": 58.7
+        }
+      },
+      "risk_analysis": {
+        "systematic_risk": {
+          "market_risk": "medium",
+          "industry_risk": "medium",
+          "macroeconomic_risk": "medium",
+          "interest_rate_risk": "high",
+          "currency_risk": "low",
+          "inflation_risk": "medium"
+        },
+        "unsystematic_risk": {
+          "company_specific_risk": "low",
+          "financial_risk": "medium",
+          "operational_risk": "low",
+          "management_risk": "low",
+          "governance_risk": "low",
+          "credit_risk": "medium",
+          "liquidity_risk": "low"
+        },
+        "liquidity_risk": {
+          "market_liquidity": "high",
+          "funding_liquidity": "medium",
+          "asset_liquidity": "medium",
+          "trading_liquidity": "high"
+        },
+        "overall_risk_assessment": {
+          "risk_level": "medium",
+          "risk_score": 55,
+          "risk_tolerance": "medium",
+          "key_risk_factors": [
+            "利率风险",
+            "信用风险",
+            "宏观经济风险"
+          ],
+          "mitigation_strategies": [
+            "分散投资",
+            "定期监控",
+            "设置止损"
+          ]
+        }
+      },
+      "sentiment_analysis": {
+        "news_sentiment": {
+          "sentiment_score": 65,
+          "sentiment_trend": "stable",
+          "positive_news_count": 3,
+          "negative_news_count": 2,
+          "neutral_news_count": 2,
+          "key_themes": [
+            "业绩增长",
+            "数字化转型",
+            "资产质量"
+          ]
+        },
+        "social_sentiment": {
+          "discussion_volume": 2400,
+          "sentiment_trend": "positive",
+          "buzz_score": 70,
+          "platforms": [
+            "微博",
+            "雪球",
+            "东方财富股吧"
+          ],
+          "engagement_rate": 0.15
+        },
+        "analyst_sentiment": {
+          "buy_ratings": 15,
+          "hold_ratings": 8,
+          "sell_ratings": 2,
+          "target_price": 12.5,
+          "upside_potential": 0.15,
+          "consensus_rating": "buy",
+          "rating_changes": "stable"
+        }
+      },
+      "scoring_system": {
+        "fundamental_score": {
+          "score": 72,
+          "weight": 0.4,
+          "components": {
+            "financial_health": 75,
+            "valuation": 80,
+            "growth": 65,
+            "profitability": 70
+          }
+        },
+        "technical_score": {
+          "score": 68,
+          "weight": 0.3,
+          "components": {
+            "trend": 75,
+            "momentum": 65,
+            "volatility": 60,
+            "volume": 70
+          }
+        },
+        "risk_score": {
+          "score": 55,
+          "weight": 0.2,
+          "components": {
+            "systematic_risk": 60,
+            "unsystematic_risk": 50,
+            "liquidity_risk": 55
+          }
+        },
+        "sentiment_score": {
+          "score": 62.5,
+          "weight": 0.1,
+          "components": {
+            "news_sentiment": 65,
+            "social_sentiment": 60,
+            "analyst_sentiment": 70
+          }
+        },
+        "weighted_scores": {
+          "fundamental_weighted": 28.8,
+          "technical_weighted": 20.4,
+          "risk_weighted": 11.0,
+          "sentiment_weighted": 6.25
+        },
+        "overall_score": 66.45,
+        "score_breakdown": {
+          "excellent": ">=80",
+          "good": "60-79",
+          "fair": "40-59",
+          "poor": "20-39",
+          "very_poor": "<20"
+        }
+      },
+      "investment_recommendation": {
+        "recommendation": "buy",
+        "confidence_level": "medium",
+        "reasoning": "估值合理，基本面稳健，技术趋势向上，分析师共识积极。当前价格具备安全边际，中期上涨概率较高。",
+        "time_horizon": "medium_term",
+        "target_price": 12.0,
+        "target_price_detail": {
+          "conservative": 11.5,
+          "base_case": 12.0,
+          "optimistic": 12.5,
+          "current_price_upside": 0.1
+        },
+        "position_sizing": "moderate",
+        "position_sizing_detail": {
+          "suggested_allocation": 0.06,
+          "max_allocation": 0.1,
+          "risk_adjusted_allocation": 0.07
+        },
+        "entry_strategy": {
+          "entry_points": [
+            10.9,
+            10.85,
+            10.8
+          ],
+          "entry_conditions": [
+            "当前价格附近",
+            "回调至MA20",
+            "测试支撑位"
+          ],
+          "dollar_cost_averaging": "recommended"
+        },
+        "exit_strategy": {
+          "take_profit_levels": [
+            11.8,
+            12.3
+          ],
+          "stop_loss_levels": [
+            10.3,
+            10.75
+          ],
+          "trailing_stop": "recommended",
+          "exit_conditions": [
+            "达到目标价",
+            "跌破关键支撑",
+            "基本面恶化"
+          ]
+        },
+        "risk_reward_ratio": 1.6,
+        "expected_return": 0.1,
+        "expected_holding_period": "3-6_months",
+        "monitoring_frequency": "weekly"
+      },
+      "comparative_analysis": {
+        "industry_ranking": {
+          "rank": 5,
+          "total_companies": 42,
+          "percentile": 88,
+          "key_metrics_ranking": {
+            "pe_ratio": 8,
+            "pb_ratio": 6,
+            "roe": 12,
+            "dividend_yield": 10
+          }
+        },
+        "peer_comparison": {
+          "peers": [
+            "招商银行",
+            "兴业银行",
+            "浦发银行",
+            "民生银行"
+          ],
+          "comparison_metrics": {
+            "pe_ratio": [
+              5.8,
+              6.2,
+              5.5,
+              4.9,
+              5.1
+            ],
+            "pb_ratio": [
+              0.65,
+              0.85,
+              0.55,
+              0.45,
+              0.5
+            ],
+            "roe": [
+              0.12,
+              0.15,
+              0.11,
+              0.09,
+              0.1
+            ],
+            "dividend_yield": [
+              0.032,
+              0.028,
+              0.035,
+              0.04,
+              0.03
+            ]
+          },
+          "relative_strength": "above_average"
+        },
+        "competitive_position": {
+          "market_share": 0.08,
+          "competitive_advantage": [
+            "品牌优势",
+            "科技赋能",
+            "综合金融"
+          ],
+          "swot_summary": "优势明显，机会大于威胁"
+        }
+      },
+      "key_highlights": {
+        "swot_analysis": {
+          "strengths": [
+            "品牌知名度高，平安集团背书",
+            "零售银行业务增长强劲",
+            "数字化转型行业领先",
+            "资本充足率达标，财务稳健"
+          ],
+          "weaknesses": [
+            "净息差面临下行压力",
+            "资产质量需持续关注",
+            "对宏观经济敏感度高"
+          ],
+          "opportunities": [
+            "经济复苏利好银行业",
+            "财富管理业务增长空间大",
+            "金融科技提升运营效率",
+            "政策支持普惠金融"
+          ],
+          "threats": [
+            "利率市场化压缩利润空间",
+            "监管政策趋严",
+            "经济下行风险",
+            "同业竞争加剧"
+          ]
+        },
+        "key_highlights": [
+          "估值低于行业平均，具备安全边际",
+          "技术面呈上升趋势，均线多头排列",
+          "分析师共识买入，目标价有上涨空间",
+          "流动性好，大盘股适合机构配置",
+          "股息率3.2%，提供下行保护"
+        ],
+        "investment_thesis": "平安银行作为中国领先的商业银行，估值合理，基本面稳健，技术趋势向上，具备中期投资价值。"
+      },
+      "reference_documents": {
+        "official_documents": [
+          {
+            "type": "annual_report",
+            "year": "2025",
+            "source": "公司官网",
+            "url": "https://www.bank.pingan.com/investor/reports.html"
+          },
+          {
+            "type": "quarterly_report",
+            "quarter": "2025-Q4",
+            "source": "深圳证券交易所",
+            "url": "http://www.szse.cn/disclosure/listed/notice/index.html"
+          }
+        ],
+        "research_reports": [
+          {
+            "title": "平安银行2025年投资价值分析",
+            "author": "中信证券",
+            "date": "2026-01-15",
+            "rating": "买入"
+          },
+          {
+            "title": "银行业2026年展望",
+            "author": "国泰君安",
+            "date": "2026-01-20",
+            "rating": "增持"
+          }
+        ],
+        "news_articles": [
+          {
+            "title": "平安银行数字化转型成效显著",
+            "source": "证券时报",
+            "date": "2026-02-10",
+            "sentiment": "positive"
+          },
+          {
+            "title": "银行业资产质量受关注",
+            "source": "中国证券报",
+            "date": "2026-02-15",
+            "sentiment": "neutral"
+          }
+        ],
+        "regulatory_filings": [
+          {
+            "type": "重大事项公告",
+            "date": "2026-01-25",
+            "source": "公司公告"
+          }
+        ],
+        "company_website": "https://www.bank.pingan.com",
+        "local_analysis_files": [
+          "analysis_results/2026-02-19/stock_平安银行_000001_analysis_2026-02-19.md",
+          "data_files/2026-02-19/akshare_data/stock_平安银行_000001_basic_info_2026-02-19.json"
+        ]
+      },
+      "data_sources": {
+        "price_data": {
+          "primary": "AKshare",
+          "secondary": "Yahoo Finance",
+          "update_frequency": "daily",
+          "coverage": "full"
+        },
+        "financial_data": {
+          "primary": "公司财报",
+          "secondary": "东方财富",
+          "update_frequency": "quarterly",
+          "coverage": "full"
+        },
+        "news_data": {
+          "sources": [
+            "新浪财经",
+            "腾讯财经",
+            "东方财富"
+          ],
+          "update_frequency": "real_time",
+          "coverage": "partial"
+        },
+        "sentiment_data": {
+          "sources": [
+            "微博",
+            "雪球",
+            "东方财富股吧"
+          ],
+          "update_frequency": "daily",
+          "coverage": "partial"
+        },
+        "analyst_data": {
+          "sources": [
+            "Wind",
+            "同花顺",
+            "券商研究报告"
+          ],
+          "update_frequency": "weekly",
+          "coverage": "good"
+        }
+      },
+      "related_files": [
+        "analysis_results/2026-02-19/stock_平安银行_000001_analysis_2026-02-19.md",
+        "data_files/2026-02-19/akshare_data/stock_平安银行_000001_basic_info_2026-02-19.json",
+        "data_files/2026-02-19/akshare_data/stock_平安银行_000001_daily_data_2026-02-19.json",
+        "stocks_pool.json",
+        "config.yaml"
+      ]
+    }
+  ]
+}
