@@ -104,6 +104,15 @@ QuanTr/
 
 ## 使用方式
 
+### 初始化
+```bash
+git clone https://github.com/kandada/QuanTr.git
+cd QuanTr
+python3 init.py   # 运行后系统会自动安装相关依赖，同时请按照指引填写相应的模型api_url和api_key.
+# 此时观察一下有没有进入.venv环境，如果没有，请执行:
+source .venv/bin/activate
+```
+
 ### 常规使用
 ```bash
 python3 main_quan_tr.py
