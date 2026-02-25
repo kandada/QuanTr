@@ -1,4 +1,4 @@
-[English](README_aacode_en) | 
+[English](README_en.md) | 
 
 # 🤖 AACode - CLI编程Agent
 
@@ -18,7 +18,7 @@
 
 ## 🎯 快速开始
 ### 操作系统
-该项目主要在Linux和MacOS开发和测试，建议使用Linux或MacOS。windows环境下有人反馈可能会存在python路径问题（个别情况，且容易解决），请自行配置解决。另外，Windows小部分系统命令会有点不同，可能会让Agent一开始有一点受阻，但它很快会找到解决方法，整体不影响Agent自由发挥。
+该项目主要在Linux和MacOS开发和测试，建议使用Linux或MacOS。Windows环境下有人反馈可能会存在python路径问题（个别情况，且容易解决），请自行配置解决。另外，Windows小部分系统命令会有点不同，可能会让Agent一开始有一点受阻，但它很快会自主找到解决方法，整体不影响Agent自由发挥。
 
 ### 一键初始化（推荐）
 
@@ -68,6 +68,10 @@ export LLM_API_KEY="your-api-key"
 export LLM_API_URL="https://your-api-endpoint/v1"
 export LLM_MODEL_NAME="your-model-name"
 ```
+
+### 多模态模型
+当前仅支持moonshot kimi-k2.5模型，请在aacode_config.yaml中配置api_key
+
 ### 搜索引擎
 目前仅支持SearXNG，需要用户自己部署并将url配置到aacode_config.yaml中，但建议还是配置环境变量SEARCHXNG_URL
 
@@ -77,7 +81,7 @@ export LLM_MODEL_NAME="your-model-name"
 ### 增减Skills
 - 在skills目录下添加skill目录（包含SKILL.md和实现文件）
 - 在aacode_config.yaml中配置：添加到enabled_skills列表；在skills_metadata中添加元数据（名称、描述、触发关键词）
-- 完成配置后，Agent就会自主“渐进式披露”使用技能了。
+- 完成配置后，Agent就会自主“渐进式披露”使用技能了。你可以添加更多你认为对你的任务有用的Skills
 
 ## 📋 使用示例
 
@@ -152,6 +156,8 @@ python3 main.py -p examples/app "为所有功能编写测试"
 - 所有公共函数必须有docstring
 - README.md必须包含使用示例
 ```
+
+同时记得将你的设计思路也添加到 `init.md` 文件中，这样，你的任务描述就会更准确，Agent会更智能地生成代码。
 
 
 ## 🏗️ 架构设计
