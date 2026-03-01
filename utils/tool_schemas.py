@@ -50,7 +50,34 @@ READ_FILE_SCHEMA = ToolSchema(
 
 WRITE_FILE_SCHEMA = ToolSchema(
     name="write_file",
-    description="写入文件内容。用于创建新文件或覆盖现有文件。",
+    description="""写入文件内容。用于创建新文件或覆盖现有文件。
+    
+**增强功能**：
+- 支持从上下文引用内容，节省token
+- 两种使用方式：
+  1. 直接提供内容：content="文件内容"
+  2. 从上下文引用：source="引用标识符"
+  
+**source参数支持格式**：
+- content:<直接内容> - 例如：source="content:Hello World"
+- file:<文件路径> - 例如：source="file:existing.txt"
+- 上下文文件名 - 例如：source="web_fetch_result"
+- last_web_fetch - 最近web_fetch结果
+- tool_result:fetch_url - fetch_url工具结果
+
+**源文件过滤参数**（当使用source参数时）：
+- source_start_line: 源文件起始行号（1-based）
+- source_end_line: 源文件结束行号（1-based）
+- source_pattern: 源文件正则表达式模式，只保留匹配的行 
+- source_exclude_pattern: 源文件正则表达式模式，排除匹配的行 
+
+**重要规则**：当使用source参数时，所有源文件过滤参数必须使用source_前缀。
+             使用不带前缀的参数将触发警告。
+
+**使用建议**：
+- 当内容已经在上下文中时，使用source参数节省token
+- 当需要生成新内容时，使用content参数
+- 需要提取部分内容时，使用source参数配合过滤参数""",
     parameters=[
         ToolParameter(
             name="path",
@@ -63,17 +90,72 @@ WRITE_FILE_SCHEMA = ToolSchema(
         ToolParameter(
             name="content",
             type=str,
-            required=True,
-            description="要写入的文件内容",
+            required=False,
+            description="要写入的文件内容（与source二选一）",
             example="print('Hello, World!')",
             aliases=["data", "text", "body", "contents"],
+        ),
+        ToolParameter(
+            name="source",
+            type=str,
+            required=False,
+            description="内容来源标识符（与content二选一）",
+            example="content:print('Hello') 或 last_web_fetch",
+            aliases=["from", "src", "reference"],
+        ),
+        ToolParameter(
+            name="source_start_line",
+            type=int,
+            required=False,
+            description="源文件起始行号（1-based）。当使用source参数时，指定要提取的起始行。",
+            example=1,
+            aliases=[],
+        ),
+        ToolParameter(
+            name="source_end_line",
+            type=int,
+            required=False,
+            description="源文件结束行号（1-based，包含）。当使用source参数时，指定要提取的结束行。",
+            example=10,
+            aliases=[],
+        ),
+        ToolParameter(
+            name="source_pattern",
+            type=str,
+            required=False,
+            description="源文件正则表达式模式。当使用source参数时，只保留匹配此模式的行。",
+            example="^def ",
+            aliases=[],
+        ),
+        ToolParameter(
+            name="source_exclude_pattern",
+            type=str,
+            required=False,
+            description="源文件正则表达式模式。当使用source参数时，排除匹配此模式的行。",
+            example="^#",
+            aliases=[],
         ),
     ],
     examples=[
         {"path": "test.py", "content": "# Test file\nprint('test')"},
         {"path": "README.md", "content": "# My Project\n\nDescription here."},
+        {"path": "result.html", "source": "content:<html>Hello</html>"},
+        {"path": "copy.txt", "source": "file:original.txt"},
+        {"path": "web_content.html", "source": "last_web_fetch"},
+        {
+            "path": "functions.txt",
+            "source": "file:source.py",
+            "source_start_line": 1,
+            "source_end_line": 50,
+            "source_pattern": "^def ",
+        },
+        {
+            "path": "clean_code.py",
+            "source": "file:original.py",
+            "source_exclude_pattern": "^#",
+        },
     ],
-    returns="返回字典，包含 success, path, size, lines 等字段",
+    returns="返回字典，包含 success, path, size, lines, source_used 等字段",
 )
 
 RUN_SHELL_SCHEMA = ToolSchema(
@@ -488,7 +570,74 @@ LIST_TODOS_SCHEMA = GET_TODO_SUMMARY_SCHEMA
 
 INCREMENTAL_UPDATE_SCHEMA = ToolSchema(
     name="incremental_update",
-    description="增量更新文件。智能分析差异，最小化更改。支持多种更新模式：smart(智能)、replace(替换)、append(追加)、prepend(前置)。",
+    description="""增量更新文件内容。支持多种更新模式，优先使用此工具而不是write_file修改现有文件。
+
+📋 **使用场景分类**（根据需求选择一种模式）：
+
+1. **智能更新**（推荐）：update_type="smart"
+   - 自动分析差异，最小化更改
+   - 适合大多数代码修改场景
+
+2. **追加/前置内容**：update_type="append" 或 "prepend"
+   - append: 追加到文件末尾
+   - prepend: 前置到文件开头
+   - 适合添加日志、注释、导入语句等
+
+3. **行级别更新**：update_type="line_update"
+   - 精确更新指定行或行范围
+   - 需要 line_number（单行）或 line_range（多行，如"10-20"）
+   - 适合修复bug、修改特定函数
+
+4. **插入内容**：update_type="insert_before" 或 "insert_after"
+   - 在指定位置插入内容
+   - 需要 reference_content（匹配内容）或 line_number（行号）
+   - 适合添加新函数、配置项
+
+5. **替换内容**：update_type="replace"
+   - 替换整个文件或指定行范围
+   - ⚠️ 危险：不指定行范围会替换整个文件！
+   - 部分替换：使用 start_line + end_line 参数
+
+🔧 **参数使用规则**：
+
+**内容参数（二选一）**：
+- new_content: 直接提供新内容（字符串）
+- source: 引用现有内容节省token（格式：content:<内容> 或 file:<路径> 或 上下文标识符）
+
+**位置参数**（根据update_type选择）：
+- line_update模式 → line_number 或 line_range
+- insert模式 → reference_content 或 line_number
+- replace模式（部分替换） → start_line + end_line
+
+**源过滤参数**（仅当使用source时，必须带source_前缀）：
+- source_start_line: 起始行号
+- source_end_line: 结束行号
+- source_pattern: 只保留匹配的行
+- source_exclude_pattern: 排除匹配的行
+
+🚨 **重要约束**：
+1. new_content和source参数二选一，不能同时使用
+2. line_update必须指定line_number或line_range
+3. insert模式必须指定reference_content或line_number
+4. 使用source参数时，过滤参数必须带source_前缀
+5. 不指定行范围时，replace会替换整个文件（谨慎！）
+
+📏 **行号计算规则**（重要共识）：
+- **行号从1开始**：第1行是文件的第一行
+- **包含性范围**：line_range="10-20" 包含第10行和第20行
+- **插入位置**：
+  - insert_before line_number=10：在第10行之前插入
+  - insert_after line_number=10：在第10行之后插入
+- **替换范围**：start_line=5, end_line=10 替换第5-10行（包含）
+- **空行计数**：空行也计入行号
+- **引用匹配**：reference_content匹配时，插入在匹配行的前/后
+
+💡 **最佳实践**：
+1. 先用read_file查看文件内容
+2. 分析需要修改的位置
+3. 选择最合适的update_type
+4. 优先使用source参数引用现有内容节省token
+5. 复杂修改可分多次增量更新""",
     parameters=[
         ToolParameter(
             name="path",
@@ -501,8 +650,8 @@ INCREMENTAL_UPDATE_SCHEMA = ToolSchema(
         ToolParameter(
             name="new_content",
             type=str,
-            required=True,
-            description="新的文件内容",
+            required=False,
+            description="新的文件内容（与source二选一）",
             example="def new_function():\n    return 'new'",
             aliases=["content", "code", "text", "data"],
         ),
@@ -511,21 +660,192 @@ INCREMENTAL_UPDATE_SCHEMA = ToolSchema(
             type=str,
             required=False,
             default="smart",
-            description="更新类型：smart(智能分析差异)、replace(替换整个文件)、append(追加到末尾)、prepend(前置到开头)",
+            description="更新类型：smart(智能分析差异)、replace(替换整个文件或指定行范围)、append(追加到末尾)、prepend(前置到开头)、line_update(行级别更新)、insert_before(在指定行之前插入)、insert_after(在指定行之后插入)",
             example="smart",
             aliases=["type", "mode", "update_mode"],
         ),
+        ToolParameter(
+            name="source",
+            type=str,
+            required=False,
+            description="内容来源标识符（与new_content二选一）",
+            example="content:def new_func():\n    return 'new'",
+            aliases=["from", "src", "reference"],
+        ),
+        ToolParameter(
+            name="line_number",
+            type=int,
+            required=False,
+            description="要更新的行号（1-based）。当update_type为line_update时使用",
+            example=10,
+            aliases=["line", "row", "line_no"],
+        ),
+        ToolParameter(
+            name="line_range",
+            type=str,
+            required=False,
+            description="要更新的行范围，格式如 '10-20'。当update_type为line_update时使用",
+            example="10-20",
+            aliases=["range", "lines", "line_range_str"],
+        ),
+        ToolParameter(
+            name="reference_content",
+            type=str,
+            required=False,
+            description="参考内容，用于定位插入位置。当update_type为insert_before或insert_after时使用",
+            example="if __name__ == \"__main__\":",
+            aliases=["reference", "ref_content", "target_content"],
+        ),
+        ToolParameter(
+            name="start_line",
+            type=int,
+            required=False,
+            description="目标文件起始行号（1-based）。当update_type为replace时，指定要替换的起始行。与end_line一起使用进行部分替换。",
+            example=5,
+            aliases=["from_line", "line_start"],
+        ),
+        ToolParameter(
+            name="end_line",
+            type=int,
+            required=False,
+            description="目标文件结束行号（1-based，包含）。当update_type为replace时，指定要替换的结束行。与start_line一起使用进行部分替换。",
+            example=10,
+            aliases=["to_line", "line_end"],
+        ),
+        ToolParameter(
+            name="source_start_line",
+            type=int,
+            required=False,
+            description="源文件起始行号（1-based）。当使用source参数时，指定要提取的起始行。",
+            example=1,
+            aliases=[],
+        ),
+        ToolParameter(
+            name="source_end_line",
+            type=int,
+            required=False,
+            description="源文件结束行号（1-based，包含）。当使用source参数时，指定要提取的结束行。",
+            example=10,
+            aliases=[],
+        ),
+        ToolParameter(
+            name="source_pattern",
+            type=str,
+            required=False,
+            description="源文件正则表达式模式。当使用source参数时，只保留匹配此模式的行。",
+            example="^def ",
+            aliases=[],
+        ),
+        ToolParameter(
+            name="source_exclude_pattern",
+            type=str,
+            required=False,
+            description="源文件正则表达式模式。当使用source参数时，排除匹配此模式的行。",
+            example="^#",
+            aliases=[],
+        ),
     ],
     examples=[
+        # 场景1：智能更新（推荐）
         {
             "path": "src/main.py",
             "new_content": "def main():\n    print('Hello')",
             "update_type": "smart",
+            "description": "智能分析差异，自动更新文件"
         },
-        {"path": "config.py", "new_content": "# 配置更新", "update_type": "append"},
-        {"path": "README.md", "new_content": "# 新标题", "update_type": "replace"},
+        
+        # 场景2：追加/前置内容
+        {
+            "path": "config.py", 
+            "new_content": "# 配置更新\nDEBUG = True",
+            "update_type": "append",
+            "description": "追加内容到文件末尾"
+        },
+        {
+            "path": "main.py",
+            "source": "content:import sys\nimport os",
+            "update_type": "prepend",
+            "description": "前置导入语句到文件开头"
+        },
+        
+        # 场景3：行级别更新
+        {
+            "path": "src/main.py",
+            "new_content": "    print('Updated line')",
+            "update_type": "line_update",
+            "line_number": 10,
+            "description": "更新第10行的内容（行号从1开始）"
+        },
+        {
+            "path": "src/utils.py",
+            "new_content": "def updated_function():\n    return 'new'",
+            "update_type": "line_update",
+            "line_range": "20-25",
+            "description": "更新第20-25行的内容（包含第20和25行）"
+        },
+        
+        # 场景4：插入内容
+        {
+            "path": "src/main.py",
+            "new_content": "@app.post(\"/hello\")\ndef hello_post():\n    return {\"message\": \"Hello\"}",
+            "update_type": "insert_before",
+            "reference_content": "if __name__ == \"__main__\":",
+            "description": "在匹配内容前插入新函数（匹配行前插入）"
+        },
+        {
+            "path": "src/main.py",
+            "new_content": "    # 新增功能注释",
+            "update_type": "insert_after",
+            "line_number": 15,
+            "description": "在第15行后插入注释（行号从1开始）"
+        },
+        
+        # 场景5：替换内容（部分替换）
+        {
+            "path": "src/main.py",
+            "new_content": "def replaced_function():\n    return 'replaced'",
+            "update_type": "replace",
+            "start_line": 5,
+            "end_line": 10,
+            "description": "替换第5-10行的内容（包含第5和10行）"
+        },
+        
+        # 场景6：使用source参数节省token
+        {
+            "path": "appended.txt",
+            "source": "file:source.txt",
+            "update_type": "append",
+            "description": "引用现有文件内容追加"
+        },
+        {
+            "path": "functions_only.py",
+            "source": "file:source.py",
+            "source_start_line": 1,
+            "source_end_line": 100,
+            "source_pattern": "^def ",
+            "update_type": "line_update",
+            "line_number": 1,
+            "description": "从源文件提取函数定义更新"
+        },
+        
+        # 场景7：行号计算示例
+        {
+            "path": "example.py",
+            "new_content": "# 在第3行后插入",
+            "update_type": "insert_after",
+            "line_number": 3,
+            "description": "示例：文件有5行，在第3行后插入，新文件第4行是插入内容"
+        },
+        
+        # 场景8：错误示例（避免这样做）
+        {
+            "path": "README.md",
+            "new_content": "# 新标题",
+            "update_type": "replace",
+            "description": "⚠️ 危险：不指定行范围会替换整个文件！"
+        }
     ],
-    returns="返回字典，包含 success, path, action, message, diff_count 等字段。智能更新时会显示更新的实体数量。",
+    returns="返回字典，包含 success, path, action, message, diff_count 等字段。不同模式返回不同信息：\n- smart模式：显示更新的实体数量\n- line_update模式：显示更新的行范围\n- 其他模式：显示执行的具体操作",
 )
 
 PATCH_FILE_SCHEMA = ToolSchema(
@@ -662,218 +982,6 @@ GET_SKILL_INFO_SCHEMA = ToolSchema(
     returns="返回字典，包含 success, name, description, parameters, examples 等字段",
 )
 
-CLEAN_CSV_SCHEMA = ToolSchema(
-    name="data_cleaning",
-    description="数据清洗技能：提供CSV数据清洗功能，包括去除重复行、填充缺失值、标准化文本、移除异常值等操作。",
-    parameters=[
-        ToolParameter(
-            name="file_path",
-            type=str,
-            required=True,
-            description="CSV数据文件路径（相对或绝对路径）",
-            example="data/raw_data.csv",
-            aliases=["path", "input", "input_file"],
-        ),
-        ToolParameter(
-            name="operations",
-            type=list,
-            required=True,
-            description="要执行的操作列表。可选值：remove_duplicates(去除重复行), fill_missing(填充缺失值), normalize_text(标准化文本), remove_outliers(移除异常值), convert_types(类型转换)",
-            example=["remove_duplicates", "normalize_text"],
-            aliases=["ops", "actions", "steps"],
-        ),
-        ToolParameter(
-            name="output_path",
-            type=str,
-            required=False,
-            description="输出文件路径（可选，默认覆盖原文件）",
-            example="data/cleaned_data.csv",
-            aliases=["output", "destination", "save_path"],
-        ),
-        ToolParameter(
-            name="missing_method",
-            type=str,
-            required=False,
-            default="mean",
-            description="缺失值填充方法：mean(均值), median(中位数), mode(众数), drop(删除)",
-            example="mean",
-        ),
-        ToolParameter(
-            name="outlier_columns",
-            type=list,
-            required=False,
-            description="要检测异常值的列名列表",
-            example=["price", "age", "score"],
-        ),
-        ToolParameter(
-            name="outlier_threshold",
-            type=float,
-            required=False,
-            default=3.0,
-            description="异常值阈值（Z-score标准差倍数）",
-            example=3.0,
-        ),
-    ],
-    examples=[
-        {
-            "file_path": "data/users.csv",
-            "operations": ["remove_duplicates", "normalize_text"],
-        },
-        {
-            "file_path": "data/sales.csv",
-            "operations": ["fill_missing"],
-            "missing_method": "median",
-        },
-        {
-            "file_path": "data/scores.csv",
-            "operations": ["remove_outliers"],
-            "outlier_columns": ["score"],
-            "outlier_threshold": 2.5,
-        },
-    ],
-    returns="返回字典，包含 success, file_path, original_rows, final_rows, operations_performed, columns, data_types 等字段",
-)
-
-CALL_API_SCHEMA = ToolSchema(
-    name="api_client",
-    description="API客户端技能：发送HTTP请求，支持GET/POST/PUT/DELETE方法，自动处理JSON、认证、重试等。",
-    parameters=[
-        ToolParameter(
-            name="method",
-            type=str,
-            required=True,
-            description="HTTP方法：GET, POST, PUT, DELETE",
-            example="GET",
-            aliases=["http_method", "request_method"],
-        ),
-        ToolParameter(
-            name="url",
-            type=str,
-            required=True,
-            description="请求URL地址",
-            example="https://api.github.com/repos/python/cpython",
-            aliases=["endpoint", "request_url", "address"],
-        ),
-        ToolParameter(
-            name="headers",
-            type=dict,
-            required=False,
-            description="请求头字典",
-            example={
-                "Authorization": "Bearer token123",
-                "Content-Type": "application/json",
-            },
-        ),
-        ToolParameter(
-            name="data",
-            type=dict,
-            required=False,
-            description="请求数据（会自动转为JSON）",
-            example={"name": "test", "value": 123},
-        ),
-        ToolParameter(
-            name="params",
-            type=dict,
-            required=False,
-            description="URL查询参数",
-            example={"page": 1, "limit": 10},
-        ),
-        ToolParameter(
-            name="timeout",
-            type=int,
-            required=False,
-            default=30,
-            description="请求超时时间（秒）",
-            example=30,
-        ),
-        ToolParameter(
-            name="retry_count",
-            type=int,
-            required=False,
-            default=3,
-            description="失败重试次数",
-            example=3,
-        ),
-    ],
-    examples=[
-        {"method": "GET", "url": "https://api.github.com/repos/python/cpython"},
-        {
-            "method": "POST",
-            "url": "https://api.example.com/users",
-            "data": {"name": "John", "email": "john@example.com"},
-        },
-        {
-            "method": "GET",
-            "url": "https://api.example.com/data",
-            "params": {"page": 1, "limit": 50},
-            "timeout": 60,
-        },
-    ],
-    returns="返回字典，包含 success, status_code, status_text, headers, body, url 等字段",
-)
-
-CONVERT_DATA_SCHEMA = ToolSchema(
-    name="data_converter",
-    description="数据转换技能：在JSON/YAML/CSV/XML等常见格式之间转换数据文件。",
-    parameters=[
-        ToolParameter(
-            name="input_path",
-            type=str,
-            required=True,
-            description="输入文件路径",
-            example="config.yaml",
-            aliases=["input", "source", "file", "from"],
-        ),
-        ToolParameter(
-            name="output_path",
-            type=str,
-            required=True,
-            description="输出文件路径",
-            example="config.json",
-            aliases=["output", "destination", "to"],
-        ),
-        ToolParameter(
-            name="input_format",
-            type=str,
-            required=False,
-            description="输入格式：json, yaml, csv, xml, auto（自动检测）",
-            example="yaml",
-            aliases=["from_format", "source_format"],
-        ),
-        ToolParameter(
-            name="output_format",
-            type=str,
-            required=False,
-            description="输出格式：json, yaml, csv, xml",
-            example="json",
-            aliases=["to_format", "target_format"],
-        ),
-        ToolParameter(
-            name="encoding",
-            type=str,
-            required=False,
-            default="utf-8",
-            description="文件编码",
-            example="utf-8",
-        ),
-    ],
-    examples=[
-        {
-            "input_path": "config.yaml",
-            "output_path": "config.json",
-            "input_format": "yaml",
-            "output_format": "json",
-        },
-        {"input_path": "data.xml", "output_path": "data.json"},
-        {
-            "input_path": "users.csv",
-            "output_path": "users.json",
-            "output_format": "json",
-        },
-    ],
-    returns="返回字典，包含 success, input_path, output_path, input_format, output_format, file_size 等字段",
-)
-
 
 # ==================== 所有工具schema的字典 ====================
 ALL_SCHEMAS = {
@@ -911,11 +1019,8 @@ ALL_SCHEMAS = {
     # Skills查询工具
     "list_skills": LIST_SKILLS_SCHEMA,
     "get_skill_info": GET_SKILL_INFO_SCHEMA,
-    # Skills执行工具（这些是示例，实际会动态加载）
-    # 注意：以下schema仅作为示例，实际skills会从skills目录动态加载
-    "data_cleaning": CLEAN_CSV_SCHEMA,
-    "api_client": CALL_API_SCHEMA,
-    "data_converter": CONVERT_DATA_SCHEMA,
+    # Skills执行工具（动态加载，不在此硬编码）
+    # 注意：skills的schema会从skills目录动态加载，通过get_all_schemas()函数合并
 }
 
 
