@@ -25,7 +25,7 @@ QuanTr/
 │   ├── backtest_reports/           # 回测报告
 │   ├── init.md                     # 约束和设计（非常重要）
 │   ├── config.py                   # quan_tr配置
-│   ├── config.yaml                 # 参数配置
+│   ├── config.yaml                 # 账号配置
 │   ├── resources.md                # 资源索引和说明
 │   └── stocks_pool.json            # 股票池配置
 ├── main.py                         # aacode主程序
@@ -137,6 +137,39 @@ python3 main_quan_tr.py --backtest_weekly
 python3 main_quan_tr.py --backtest_monthly
 ```
 
+### 持久化定时运行
+```bash
+# 每天定时运行（默认10:00）
+./cron_run_quan_tr.sh
+
+# 指定时间运行（每天11:00）
+./cron_run_quan_tr.sh -t 11:00
+
+# 查看定时任务设置说明
+./cron_run_quan_tr.sh -h
+
+# 立即运行一次（不设置定时）
+./cron_run_quan_tr.sh -t 11:00
+```
+**说明**：
+- 执行一次完整的股票分析，完成后运行一次近7天的回测
+- 不管是否交易日，都会运行
+- 运行日志保存在 `quan_tr/cron_run_quan_tr.log`
+
+### 停止持久化定时运行
+```bash
+# 查看当前cron任务
+crontab -l | grep cron_run_quan_tr
+
+# 删除cron任务
+crontab -l | grep -v cron_run_quan_tr | crontab -
+
+# 或使用以下命令直接删除所有相关cron任务
+crontab -r
+```
+- 使用 `-t` 参数指定运行时间（格式：HH:MM），默认为10:00
+- 直接运行脚本会显示cron设置说明
+
 ## 配置说明
 
 ### 股票池配置
@@ -160,7 +193,7 @@ python3 main_quan_tr.py --backtest_monthly
       ],
       "files": [
         {
-          "type": "上市公司年报",
+          "type": "上市公司年报(2026)",
           "file_path": ""
         }
       ]
