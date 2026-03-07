@@ -2,7 +2,7 @@
 
 ## 概述
 
-QuanTr是一款基于aacode的股票分析和策略回测AI Agent系统，通过编程方式实现量化交易分析和回测。系统利用AI Agent的自主编程能力，完成股票数据分析、策略生成和回测验证等任务。
+QuanTr是一款基于aacode的股票分析和策略回测AI Agent系统，通过编程方式实现量化交易分析。系统利用AI Agent的自主编程能力，完成股票数据分析、策略生成和回测验证等任务。
 
 **核心理念**：编程即万物，CLI coding Agent可自主完成多数编程任务，因此也可自主完成量化交易领域的多数分析工作。
 
@@ -29,7 +29,7 @@ QuanTr/
 │   ├── resources.md                # 资源索引和说明
 │   └── stocks_pool.json            # 股票池配置
 ├── main.py                         # aacode主程序
-├── main_quan_tr.py                 # QuanTr主程序（主入口）
+├── main_quan_tr.py                 # QuanTr主程序（待实现）
 ├── README.md                       # 本项目文档
 └── README_aacode.md                # aacode原文档
 ```
@@ -47,7 +47,7 @@ QuanTr/
 - **原始数据文件**：从各数据源获取的原始数据
 - **股票分析报告**：每只股票的详细分析（`stock_<名称>_<代码>_analysis.md`）
 - **分析汇总**：结构化汇总数据（`stocks_analysis_<日期>.json`）
-- **回测报告**：近7天分析策略的回测结果（`backtest_result_for_analysis_in_<日期>.md`）
+- **回测报告**：近7天分析策略的回测结果（`strategies_backtest_report.md`）
 
 ## 数据获取渠道
 
@@ -104,15 +104,6 @@ QuanTr/
 
 ## 使用方式
 
-### 初始化
-```bash
-git clone https://github.com/kandada/QuanTr.git
-cd QuanTr
-python3 init.py   # 运行后系统会自动安装相关依赖，同时请按照指引填写相应的模型api_url和api_key.
-# 此时观察一下有没有进入.venv环境，如果没有，请执行:
-source .venv/bin/activate
-```
-
 ### 常规使用
 ```bash
 python3 main_quan_tr.py
@@ -137,39 +128,6 @@ python3 main_quan_tr.py --backtest_weekly
 python3 main_quan_tr.py --backtest_monthly
 ```
 
-### 持久化定时运行
-```bash
-# 每天定时运行（默认10:00）
-./cron_run_quan_tr.sh
-
-# 指定时间运行（每天11:00）
-./cron_run_quan_tr.sh -t 11:00
-
-# 查看定时任务设置说明
-./cron_run_quan_tr.sh -h
-
-# 立即运行一次（不设置定时）
-./cron_run_quan_tr.sh -t 11:00
-```
-**说明**：
-- 执行一次完整的股票分析，完成后运行一次近7天的回测
-- 不管是否交易日，都会运行
-- 运行日志保存在 `quan_tr/cron_run_quan_tr.log`
-
-### 停止持久化定时运行
-```bash
-# 查看当前cron任务
-crontab -l | grep cron_run_quan_tr
-
-# 删除cron任务
-crontab -l | grep -v cron_run_quan_tr | crontab -
-
-# 或使用以下命令直接删除所有相关cron任务
-crontab -r
-```
-- 使用 `-t` 参数指定运行时间（格式：HH:MM），默认为10:00
-- 直接运行脚本会显示cron设置说明
-
 ## 配置说明
 
 ### 股票池配置
@@ -193,7 +151,7 @@ crontab -r
       ],
       "files": [
         {
-          "type": "上市公司年报(2026)",
+          "type": "上市公司年报",
           "file_path": ""
         }
       ]

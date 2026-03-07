@@ -694,7 +694,7 @@ def generate_stock_analysis_task(rewrite=False):
 - JSON必须包含模板定义的所有字段，不能简化
 - 数值字段无数据用0填充，字符串用空字符串
 - 参考programs/README.md反思优化程序
-- 如果没获取到数据，需要想其他办法获取数据
+- **没有准确数据就没有分析**，如果没获取到数据，需要想其他办法获取到数据
 
 **任务状态**: {"覆盖已有分析" if rewrite else "增量分析（跳过已完成的股票）"}
 """
@@ -720,7 +720,7 @@ def generate_stock_analysis_task(rewrite=False):
 - JSON必须包含模板定义的所有字段，不能简化
 - 数值字段无数据用0填充，字符串用空字符串
 - 参考programs/README.md反思优化程序
-- 如果没获取到数据，需要想其他办法获取数据
+- **没有准确数据就没有分析**，如果没获取到数据，需要想其他办法获取到数据
 
 **任务状态**: 增量分析（跳过已完成的股票）
 """
@@ -748,7 +748,7 @@ def generate_backtest_task(period="weekly"):
 2. 基于买入卖出建议定义交易策略，进行回测
 3. 计算收益率、夏普比率、最大回撤、胜率等指标
 4. 生成回测报告：`backtest_reports/backtest_result_for_analysis_in_{current_date}.md`
-5. 如果没获取到数据，需要想其他办法获取数据
+5. **没有准确数据就没有分析**，如果没获取到数据，需要想其他办法获取到数据
 
 ## 产出要求
 - 回测报告（包含绩效指标、交易记录、优化建议）
