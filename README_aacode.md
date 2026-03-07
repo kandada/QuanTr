@@ -12,7 +12,7 @@
 * bash万能适配器：通过安全护栏提供灵活的系统访问
 * 上下文管理：借鉴了Cursor和Manus的智能缩减策略
 * 异步设计：所有阻塞操作都是异步的
-* 分层工具系统：原子工具、沙箱工具、代码包三层架构
+* 分层工具系统：原子工具、代码包、skills等多层架构
 * 安全护栏：全面的命令和路径安全检查
 * 可扩展架构：支持自定义工具和模型后端
 
@@ -62,15 +62,28 @@ python main.py --session session_20250128_123456_0 "继续任务"
 export LLM_API_KEY="your-openai-key"
 export LLM_API_URL="https://api.openai.com/v1"
 export LLM_MODEL_NAME="gpt-4"
+export LLM_GATEWAY="openai"
+export LLM_MULTIMODAL="false"
 
 # 其他兼容OpenAI API的模型（deepseek等）
 export LLM_API_KEY="your-api-key"
 export LLM_API_URL="https://your-api-endpoint/v1"
 export LLM_MODEL_NAME="your-model-name"
+export LLM_GATEWAY="openai"
+export LLM_MULTIMODAL="false"
+
+# 其他同时支持多模态的模型（如MiniMax、Kimi等）
+export LLM_API_KEY="your-kimi-key"
+export LLM_API_URL="https://api.moonshot.cn/v1"
+export LLM_MODEL_NAME="kimi-k2.5"
+export LLM_GATEWAY="anthropic"
+export LLM_MULTIMODAL="true"
 ```
 
-### 多模态模型
-当前仅支持moonshot kimi-k2.5模型，请在aacode_config.yaml中配置api_key
+### 多模态模型用于支持多模态工具
+支持多种多模态模型（如Kimi K2.5、MiniMax M2.5等），请在.env文件或aacode_config.yaml中配置：
+- `MULTIMODAL_API_KEY`: 多模态模型API密钥
+- `MULTIMODAL_API_URL`: 多模态模型API地址（可选，默认使用模型对应的地址）
 
 ### 搜索引擎
 目前仅支持SearXNG，需要用户自己部署并将url配置到aacode_config.yaml中，但建议还是配置环境变量SEARCHXNG_URL
