@@ -7,6 +7,7 @@
 
 import asyncio
 import subprocess
+import sys
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
@@ -68,21 +69,12 @@ class AtomicTools:
             if not full_path.is_file():
                 return {"error": f"路径不是文件: {display_path}"}
 
-            # 使用bash万能适配器 - 使用绝对路径避免cwd问题
-            result = await asyncio.create_subprocess_exec(
-                "cat",
-                str(full_path.absolute()),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
+            # 跨平台读取文件（cat 是 Unix 命令，Windows 上不存在）
+            try:
+                content = full_path.read_text(encoding="utf-8", errors="replace")
+            except Exception as e:
+                return {"error": f"读取文件失败: {str(e)}"}
 
-            stdout, stderr = await result.communicate()
-
-            if result.returncode != 0:
-                error_msg = stderr.decode() if stderr else "读取文件失败"
-                return {"error": f"读取文件失败: {error_msg}"}
-
-            content = stdout.decode("utf-8", errors="ignore")
             # 保留原始content用于返回
             original_content = content
             # 计算行数时去除末尾换行符，避免split后多出一个空元素
@@ -95,21 +87,21 @@ class AtomicTools:
                 # 1. 先调整行号边界（1-based行号）
                 adj_line_start = line_start if line_start is not None else 1
                 adj_line_end = line_end if line_end is not None else total_lines
-                
+
                 # 确保行号在有效范围内
                 adj_line_start = max(1, min(adj_line_start, total_lines))
                 adj_line_end = max(1, min(adj_line_end, total_lines))
-                
+
                 # 2. 转换为0-based索引
                 start_idx = adj_line_start - 1
                 end_idx = adj_line_end - 1
-                
+
                 # 3. 检查是否有效的范围
                 if start_idx <= end_idx:
                     # 提取行 (end_idx需要+1因为切片不包含结束索引)
                     selected_lines = lines[start_idx : end_idx + 1]
                     content = "\n".join(selected_lines) + "\n"
-                    
+
                     # 计算实际返回的行范围（使用调整后的行号）
                     actual_start_line = adj_line_start
                     actual_end_line = adj_line_end
@@ -132,7 +124,10 @@ class AtomicTools:
                     )
 
             # 读取整个文件 - 智能分段提示
-            from config import settings
+            if __package__ in (None, ""):
+                from config import settings
+            else:
+                from ..config import settings
 
             max_auto_read_lines = getattr(settings.limits, "max_auto_read_lines", 200)
 
@@ -193,7 +188,7 @@ class AtomicTools:
 
         if file_ext in code_extensions:
             try:
-                from utils.code_analyzer import CodeAnalyzer
+                from ..utils.code_analyzer import CodeAnalyzer
 
                 analyzer = CodeAnalyzer(self.project_path)
                 analysis = analyzer.analyze_code(content, file_ext)
@@ -233,8 +228,8 @@ class AtomicTools:
             "suggestions": [
                 f"📖 读取前100行: read_file(path='{path}', line_end=100)",
                 f"📖 读取第100-200行: read_file(path='{path}', line_start=100, line_end=200)",
-                f"📖 读取中间部分: read_file(path='{path}', line_start={total_lines//2-50}, line_end={total_lines//2+50})",
-                f"📖 读取末尾100行: read_file(path='{path}', line_start={max(1, total_lines-100)})",
+                f"📖 读取中间部分: read_file(path='{path}', line_start={total_lines // 2 - 50}, line_end={total_lines // 2 + 50})",
+                f"📖 读取末尾100行: read_file(path='{path}', line_start={max(1, total_lines - 100)})",
             ],
             "preview": "\n".join(lines[:50]) + f"\n\n... (还有 {total_lines - 50} 行)",
             "note": "💡 提示:使用 line_start 和 line_end 参数读取特定范围",
@@ -254,7 +249,7 @@ class AtomicTools:
                     "name": f["name"],
                     "line": f["line"],
                     "args": f.get("args", []),
-                    "suggestion": f"read_file(path='{path}', line_start={f['line']}, line_end={f['line']+20})",
+                    "suggestion": f"read_file(path='{path}', line_start={f['line']}, line_end={f['line'] + 20})",
                 }
                 for f in analysis.functions[:10]  # 最多显示10个
             ]
@@ -270,7 +265,7 @@ class AtomicTools:
                     "name": c["name"],
                     "line": c["line"],
                     "methods": c.get("methods", []),
-                    "suggestion": f"read_file(path='{path}', line_start={c['line']}, line_end={c['line']+50})",
+                    "suggestion": f"read_file(path='{path}', line_start={c['line']}, line_end={c['line'] + 50})",
                 }
                 for c in analysis.classes[:5]  # 最多显示5个
             ]
@@ -297,22 +292,22 @@ class AtomicTools:
         if analysis.functions:
             func = analysis.functions[0]
             suggestions.append(
-                f"📖 读取第一个函数 '{func['name']}': read_file(path='{path}', line_start={func['line']}, line_end={func['line']+30})"
+                f"📖 读取第一个函数 '{func['name']}': read_file(path='{path}', line_start={func['line']}, line_end={func['line'] + 30})"
             )
 
         # 基于类的建议
         if analysis.classes:
             cls = analysis.classes[0]
             suggestions.append(
-                f"📖 读取第一个类 '{cls['name']}': read_file(path='{path}', line_start={cls['line']}, line_end={cls['line']+50})"
+                f"📖 读取第一个类 '{cls['name']}': read_file(path='{path}', line_start={cls['line']}, line_end={cls['line'] + 50})"
             )
 
         # 通用建议
         suggestions.extend(
             [
                 f"📖 读取前100行: read_file(path='{path}', line_end=100)",
-                f"📖 读取中间部分: read_file(path='{path}', line_start={total_lines//2-50}, line_end={total_lines//2+50})",
-                f"📖 读取末尾: read_file(path='{path}', line_start={max(1, total_lines-100)})",
+                f"📖 读取中间部分: read_file(path='{path}', line_start={total_lines // 2 - 50}, line_end={total_lines // 2 + 50})",
+                f"📖 读取末尾: read_file(path='{path}', line_start={max(1, total_lines - 100)})",
             ]
         )
 
@@ -386,21 +381,12 @@ class AtomicTools:
             if not self.safety_guard.is_safe_path(full_path):
                 return {"error": f"写入路径超出项目范围: {display_path}"}
 
-            # 使用bash万能适配器
-            # 先创建目录,再写入文件
-            mkdir_cmd = f"mkdir -p {full_path.parent}"
-            mkdir_process = await asyncio.create_subprocess_shell(
-                mkdir_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=self.project_path,
-            )
-
-            mkdir_stdout, mkdir_stderr = await mkdir_process.communicate()
-            if mkdir_process.returncode != 0:
-                return {
-                    "error": f"创建目录失败: {mkdir_stderr.decode() if mkdir_stderr else '未知错误'}"
-                }
+            # 跨平台创建目录（mkdir -p 是 Unix 命令，Windows 上不可用）
+            try:
+                import os
+                os.makedirs(full_path.parent, exist_ok=True)
+            except Exception as e:
+                return {"error": f"创建目录失败: {str(e)}"}
 
             # 处理内容来源
             final_content = None
@@ -507,7 +493,7 @@ class AtomicTools:
 
             lines = lines[start:end]
             if start_line or end_line:
-                print(f"📏 应用行范围过滤(source_): 第{start+1}-{end}行")
+                print(f"📏 应用行范围过滤(source_): 第{start + 1}-{end}行")
 
         # 应用正则表达式过滤 - 强制使用source_前缀参数
         pattern = kwargs.get("source_pattern")
@@ -691,17 +677,25 @@ class AtomicTools:
             return None
 
     async def run_shell(
-        self, command: str, timeout: int = 120, **kwargs
+        self, command: str, timeout: int = 120, stdin_input: str = None, **kwargs
     ) -> Dict[str, Any]:
         """
         执行shell命令(带安全护栏)
+
+        Args:
+            command: 要执行的shell命令
+            timeout: 超时时间（秒）
+            stdin_input: 传给程序的标准输入内容（可选）。程序有 input() 时使用，多行用 \\n 分隔
 
         注意:**kwargs 用于接收并忽略模型可能传入的额外参数
         """
         try:
             # 使用配置的超时时间(来自 aacode_config.yaml)
             if timeout is None:
-                from config import settings
+                if __package__ in (None, ""):
+                    from config import settings
+                else:
+                    from ..config import settings
 
                 timeout = settings.timeouts.shell_command
 
@@ -717,25 +711,53 @@ class AtomicTools:
             # 在项目目录下执行
             print(f"🔧 执行命令: {command}")
 
+            # stdin 策略：有 stdin_input 时用 PIPE 喂入，否则用 DEVNULL 防阻塞
+            if stdin_input:
+                stdin_mode = asyncio.subprocess.PIPE
+            else:
+                stdin_mode = asyncio.subprocess.DEVNULL
+
             # 异步执行命令
             process = await asyncio.create_subprocess_shell(
                 command,
                 cwd=str(self.project_path),
+                stdin=stdin_mode,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                shell=True,
             )
 
             try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(), timeout=timeout
-                )
+                if stdin_input:
+                    # 编码 stdin_input 并喂给进程
+                    import os as _os
+                    encoding = "utf-8" if _os.name != "nt" else "utf-8"
+                    stdout, stderr = await asyncio.wait_for(
+                        process.communicate(input=stdin_input.encode(encoding)),
+                        timeout=timeout,
+                    )
+                else:
+                    stdout, stderr = await asyncio.wait_for(
+                        process.communicate(), timeout=timeout
+                    )
 
-                stdout_text = stdout.decode("utf-8", errors="ignore")
-                stderr_text = stderr.decode("utf-8", errors="ignore")
+                # Windows 解码策略：先尝试 UTF-8（python 程序输出），失败再用 GBK（CMD 命令输出）
+                # macOS/Linux 统一用 UTF-8
+                import os as _os
+                def _smart_decode(data):
+                    if _os.name != "nt":
+                        return data.decode("utf-8", errors="replace")
+                    try:
+                        return data.decode("utf-8")
+                    except UnicodeDecodeError:
+                        return data.decode("gbk", errors="replace")
+                stdout_text = _smart_decode(stdout)
+                stderr_text = _smart_decode(stderr)
 
                 # 打印输出预览(使用配置的预览长度)
-                from config import settings
+                if __package__ in (None, ""):
+                    from config import settings
+                else:
+                    from ..config import settings
 
                 preview_length = settings.limits.shell_output_preview
 
@@ -822,7 +844,10 @@ class AtomicTools:
                     break
 
             # 使用配置的最大结果数(来自 aacode_config.yaml)
-            from config import settings
+            if __package__ in (None, ""):
+                from config import settings
+            else:
+                from ..config import settings
 
             if max_results == 100:  # 使用默认值，检查配置
                 max_results = settings.limits.max_file_list_results
@@ -849,7 +874,24 @@ class AtomicTools:
 
     async def _list_files_only(self, pattern: str, max_results: int) -> Dict[str, Any]:
         """仅列出文件（不搜索内容）"""
-        # 使用bash万能适配器
+        import os as _os
+
+        if _os.name == "nt":
+            # Windows: 用 Python glob 替代 find | head（这两个是 Unix 命令）
+            from pathlib import Path as _Path
+            files = []
+            try:
+                for f in _Path(self.project_path).rglob(pattern):
+                    if f.is_file() and ".aacode" not in str(f):
+                        rel = str(f.relative_to(self.project_path))
+                        files.append({"path": rel, "size": 0, "is_dir": False})
+                        if len(files) >= max_results:
+                            break
+            except Exception as e:
+                return {"error": str(e)}
+            return {"success": True, "files": files, "count": len(files), "mode": "list"}
+
+        # macOS/Linux: 保持原有的 find | head
         cmd = f"find . -name '{pattern}' -type f | head -{max_results}"
 
         process = await asyncio.create_subprocess_shell(
@@ -862,14 +904,14 @@ class AtomicTools:
         stdout, stderr = await process.communicate()
 
         if process.returncode != 0:
-            return {"error": stderr.decode() if stderr else "列出文件失败"}
+            return {"error": stderr.decode("utf-8", errors="replace") if stderr else "列出文件失败"}
 
         files = []
-        for line in stdout.decode().strip().split("\n"):
+        for line in stdout.decode("utf-8", errors="replace").strip().split("\n"):
             if line.strip() and ".aacode" not in line:
                 rel_path = line.strip()[2:]  # 移除 './'
                 files.append(
-                    {"path": rel_path, "size": 0, "is_dir": False}  # 简化,不获取大小
+                    {"path": rel_path, "size": 0, "is_dir": False}
                 )
 
         return {"success": True, "files": files, "count": len(files), "mode": "list"}
@@ -945,11 +987,11 @@ class AtomicTools:
             stdout, stderr = await process.communicate()
 
             if process.returncode not in [0, 1]:  # 0: 找到结果, 1: 没找到
-                return {"error": f"搜索失败: {stderr.decode()}", "success": False}
+                return {"error": f"搜索失败: {stderr.decode("utf-8", errors="replace")}", "success": False}
 
             # 收集结果，按文件分组
             file_results: dict[str, dict] = {}
-            for line in stdout.decode().split("\n"):
+            for line in stdout.decode("utf-8", errors="replace").split("\n"):
                 if line.strip():
                     parts = line.split(":", 2)
                     if len(parts) >= 3:
@@ -1019,7 +1061,10 @@ class AtomicTools:
             import subprocess
 
             # 使用配置的最大结果数(来自 aacode_config.yaml)
-            from config import settings
+            if __package__ in (None, ""):
+                from config import settings
+            else:
+                from ..config import settings
 
             if max_results == 20:  # 使用默认值，检查配置
                 max_results = settings.limits.max_search_results
@@ -1069,10 +1114,10 @@ class AtomicTools:
             stdout, stderr = await process.communicate()
 
             if process.returncode not in [0, 1]:  # 0: 找到结果, 1: 没找到
-                return {"error": f"搜索失败: {stderr.decode()}", "success": False}
+                return {"error": f"搜索失败: {stderr.decode("utf-8", errors="replace")}", "success": False}
 
             results = []
-            for line in stdout.decode().split("\n"):
+            for line in stdout.decode("utf-8", errors="replace").split("\n"):
                 if line.strip():
                     parts = line.split(":", 2)
                     if len(parts) >= 3:
@@ -1143,14 +1188,14 @@ class AtomicTools:
             if process.returncode not in [0, 1]:
                 return {
                     "success": True,
-                    "error": f"搜索命令失败: {stderr.decode() if stderr else '未知错误'}",
+                    "error": f"搜索命令失败: {stderr.decode("utf-8", errors="replace") if stderr else '未知错误'}",
                     "query": query,
                     "results": [],
                     "count": 0,
                 }
 
             results = []
-            output = stdout.decode().strip()
+            output = stdout.decode("utf-8", errors="replace").strip()
 
             if not output:
                 # 没有匹配结果

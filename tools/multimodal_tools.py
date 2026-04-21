@@ -7,10 +7,16 @@
 import asyncio
 import base64
 import os
+import sys
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Union
 import openai
-from config import settings
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+    from config import settings
+else:
+    from ..config import settings
 
 
 class MultimodalTools:
@@ -49,7 +55,7 @@ class MultimodalTools:
                 if model_key in self.models:
                     self.default_model = model_key
                     self.current_model_config = self.models[model_key]
-                    print(f"✅ 多模态工具将使用主模型: MiniMax-M2.5")
+                    print(f"✅ 多模态工具将使用主模型: {settings.model.name}")
                 else:
                     # 动态创建MiniMax配置
                     self._create_minimax_config()
@@ -58,7 +64,7 @@ class MultimodalTools:
                 if model_key in self.models:
                     self.default_model = model_key
                     self.current_model_config = self.models[model_key]
-                    print(f"✅ 多模态工具将使用主模型: Kimi-K2.5")
+                    print(f"✅ 多模态工具将使用主模型: {settings.model.name}")
 
     def _create_minimax_config(self):
         """动态创建MiniMax多模态配置"""
@@ -67,8 +73,8 @@ class MultimodalTools:
             "provider": "minimax",
             "gateway": "anthropic",
             "base_url": (
-                settings.model.base_url 
-                or os.getenv("MULTIMODAL_API_URL") 
+                settings.model.base_url
+                or os.getenv("MULTIMODAL_API_URL")
                 or "https://api.minimax.chat/v1"
             ),
             "api_key": settings.model.api_key or os.getenv("LLM_API_KEY"),
@@ -395,7 +401,7 @@ class MultimodalTools:
         if not api_key:
             raise ValueError("未设置多模态模型API密钥")
 
-        client = openai.OpenAI(api_key=api_key, base_url=base_url)
+        client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
 
         # 简化消息格式以兼容所有API
         simplified_messages = self._simplify_messages_for_api(messages)
@@ -405,14 +411,14 @@ class MultimodalTools:
         try:
             if provider == "moonshot":
                 # Kimi 模型 - 使用类型转换避免类型检查问题
-                response = client.chat.completions.create(
+                response = await client.chat.completions.create(
                     model=model_name,
                     messages=simplified_messages,  # type: ignore
                     max_tokens=4096,
                 )
             else:
                 # MiniMax 和其他模型
-                response = client.chat.completions.create(
+                response = await client.chat.completions.create(
                     model=model_name,
                     messages=simplified_messages,  # type: ignore
                     temperature=0.7,

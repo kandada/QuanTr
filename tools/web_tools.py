@@ -7,6 +7,7 @@
 import asyncio
 import aiohttp
 import json
+import sys
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 from urllib.parse import quote, urljoin
@@ -36,7 +37,10 @@ class WebTools:
         """确保HTTP会话存在"""
         if self.session is None or self.session.closed:
             # 使用配置的超时时间(来自 aacode_config.yaml)
-            from config import settings
+            if __package__ in (None, ""):
+                from config import settings
+            else:
+                from ..config import settings
 
             web_timeout = settings.timeouts.web_request
             timeout = aiohttp.ClientTimeout(total=web_timeout, connect=10)
@@ -148,7 +152,10 @@ class WebTools:
         try:
             # 使用配置的超时时间(来自 aacode_config.yaml)
             if timeout is None:
-                from config import settings
+                if __package__ in (None, ""):
+                    from config import settings
+                else:
+                    from ..config import settings
 
                 timeout = settings.timeouts.web_request
 
@@ -249,7 +256,7 @@ class WebTools:
         """检查速率限制"""
         last_time = self.last_search_time.get(engine, 0)
         rate_limit_value = self.search_engines.get(engine, {}).get("rate_limit", 1.0)
-        
+
         # 确保rate_limit是数值类型
         try:
             rate_limit = float(rate_limit_value)  # type: ignore[arg-type]
@@ -326,7 +333,10 @@ class WebTools:
             ]
 
             # 使用配置的超时时间
-            from config import settings
+            if __package__ in (None, ""):
+                from config import settings
+            else:
+                from ..config import settings
 
             web_timeout = settings.timeouts.web_request
             client_timeout = aiohttp.ClientTimeout(total=web_timeout)
@@ -334,7 +344,7 @@ class WebTools:
             last_error = None
             for i, test_params in enumerate(param_variations):
                 try:
-                    print(f"🔍 尝试参数组合 {i+1}: {test_params}")
+                    print(f"🔍 尝试参数组合 {i + 1}: {test_params}")
                     # 确保session存在
                     if self.session is None:
                         await self._ensure_session()
@@ -398,10 +408,10 @@ class WebTools:
                             continue
 
                 except asyncio.TimeoutError:
-                    last_error = f"参数组合 {i+1} 超时"
+                    last_error = f"参数组合 {i + 1} 超时"
                     continue
                 except Exception as e:
-                    last_error = f"参数组合 {i+1} 错误: {str(e)}"
+                    last_error = f"参数组合 {i + 1} 错误: {str(e)}"
                     continue
 
             return {
@@ -496,32 +506,18 @@ class WebTools:
     async def cleanup(self):
         """清理资源，关闭HTTP会话"""
         if hasattr(self, "session") and self.session and not self.session.closed:
-            await self.session.close()
+            try:
+                await self.session.close()
+                # 等待底层 connector 释放连接，避免 Windows 上 _sock.fileno() 错误
+                await asyncio.sleep(0.25)
+            except Exception:
+                pass
             self.session = None
 
     def __del__(self):
-        """析构函数，确保会话被关闭"""
-        try:
-            if hasattr(self, "session") and self.session and not self.session.closed:
-                # 尝试同步关闭会话（在析构函数中不能使用await）
-                import asyncio
-
-                try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        # 如果事件循环正在运行，安排异步关闭
-                        asyncio.create_task(self.session.close())
-                    else:
-                        # 否则同步关闭
-                        loop.run_until_complete(self.session.close())
-                except RuntimeError:
-                    # 如果没有事件循环，创建新的事件循环
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    loop.run_until_complete(self.session.close())
-                    loop.close()
-        except Exception:
-            pass  # 忽略析构函数中的错误
+        """析构函数 - 不再尝试异步清理，避免 Windows 上 _sock.fileno() 错误刷屏。
+        资源清理由 cleanup() 在 execute() 的 finally 块中完成。"""
+        pass
 
 
 # 保留原有WebSearchTools类以保持兼容性

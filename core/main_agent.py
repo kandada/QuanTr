@@ -5,30 +5,101 @@
 """
 
 import asyncio
-from typing import Dict, List, Any, Optional
+import sys
 from pathlib import Path
 from datetime import datetime
+from typing import Dict, List, Any, Optional
 import os
-from core.agent import BaseAgent
-from core.react_loop import AsyncReActLoop
-from core.multi_agent import MultiAgentSystem
-from core.prompts import SYSTEM_PROMPT_FOR_MAIN_AGENT
-from tools.atomic_tools import AtomicTools
-from tools.code_tools import CodeTools
-from tools.sandbox_tools import SandboxTools
-from tools.web_tools import WebTools
-from tools.todo_tools import TodoTools
-from utils.mcp_manager import MCPManager
-from utils.session_manager import SessionManager
-from utils.tool_registry import get_global_registry
-from utils.tool_schemas import get_all_schemas, get_schema
-from tools.skills_tools import SkillsManager, SkillInfo
-from tools.multimodal_tools import MultimodalTools, get_multimodal_tools_schema
-from core.sub_agent import SubAgent
 import subprocess
 import openai
 import anthropic
-from config import settings
+
+# ─── 流式输出架构说明 ───────────────────────────────────────────
+# 
+# 数据流：Python stdout → Rust read_line() → Tauri emit → 前端 JS
+#
+# 两种输出模式（由 _is_tty 决定）：
+#   1. TTY 模式（CLI 终端直接运行）：
+#      - print(text, end="") 逐字追加，不加换行，终端实时显示
+#      - 用户在终端直接看到流式输出
+#
+#   2. 管道模式（Tauri 桌面客户端通过子进程调用）：
+#      - Rust 端用 read_line() 按行读取 stdout
+#      - read_line() 需要 \n 才能返回一行，所以 print(text) 必须加换行
+#      - 但模型 token 本身可能包含 \n（如表格行间换行），这个 \n 会和
+#        print 加的 \n 混淆，导致 Rust 端无法区分
+#      - 解决方案：_stream_print 在管道模式下将 token 中的 \n 转义为 \x00，
+#        Rust 端 read_line 后 trim 掉 print 加的 \n，再将 \x00 还原为 \n
+#      - 这样前端收到的 content 就是模型的原始 token，换行信息不失真
+#
+# 系统日志行（如 "🤖 模型思考中"、"📋 Observation:" 等）：
+#   - 直接用 print() 输出，不经过 _stream_print
+#   - Rust 端 trim 后发送给前端，前端通过 emoji 前缀识别并加 \n 分行
+#   - 注意：不要用 _stream_print 输出系统标记行，否则 \x00 转义会干扰前端识别
+#
+# ⚠️ 重要：不要修改 TTY 模式下的 end="" 行为，这是终端流式显示所必需的
+# ⚠️ 重要：不要去掉管道模式下的 \x00 转义，否则表格等多行内容会渲染失败
+# ─────────────────────────────────────────────────────────────────
+
+_is_tty = sys.stdout.isatty()
+
+def _stream_print(text, newline_after=False):
+    """
+    流式输出模型 token。
+    
+    - TTY 模式：逐字追加（end=""），终端实时显示
+    - 管道模式：token 中 \\n 转义为 \\x00 后 print（带换行），
+      Rust read_line() 读取后还原 \\x00 → \\n，去掉 print 加的末尾 \\n
+    
+    仅用于模型流式 token 输出。系统标记行（emoji 开头）应直接用 print()。
+    """
+    if _is_tty:
+        print(text, end="", flush=True)
+    else:
+        # 管道模式：转义 token 中的 \n 为 \x00，避免和 print 自动加的 \n 混淆
+        # Rust 端 read_line() 读到一行后：trim 末尾 \n → 还原 \x00 → \n → 发送给前端
+        escaped = text.replace('\n', '\x00')
+        print(escaped, flush=True)
+    if newline_after and _is_tty:
+        print()
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+    from core.agent import BaseAgent
+    from core.react_loop import AsyncReActLoop
+    from core.multi_agent import MultiAgentSystem
+    from core.prompts import SYSTEM_PROMPT_FOR_MAIN_AGENT
+    from tools.atomic_tools import AtomicTools
+    from tools.code_tools import CodeTools
+    from tools.sandbox_tools import SandboxTools
+    from tools.web_tools import WebTools
+    from tools.todo_tools import TodoTools
+    from utils.mcp_manager import MCPManager
+    from utils.session_manager import SessionManager
+    from utils.tool_registry import get_global_registry
+    from utils.tool_schemas import get_all_schemas, get_schema
+    from tools.skills_tools import SkillsManager, SkillInfo
+    from tools.multimodal_tools import MultimodalTools, get_multimodal_tools_schema
+    from core.sub_agent import SubAgent
+    from config import settings
+else:
+    from .agent import BaseAgent
+    from .react_loop import AsyncReActLoop
+    from .multi_agent import MultiAgentSystem
+    from .prompts import SYSTEM_PROMPT_FOR_MAIN_AGENT
+    from ..tools.atomic_tools import AtomicTools
+    from ..tools.code_tools import CodeTools
+    from ..tools.sandbox_tools import SandboxTools
+    from ..tools.web_tools import WebTools
+    from ..tools.todo_tools import TodoTools
+    from ..utils.mcp_manager import MCPManager
+    from ..utils.session_manager import SessionManager
+    from ..utils.tool_registry import get_global_registry
+    from ..utils.tool_schemas import get_all_schemas, get_schema
+    from ..tools.skills_tools import SkillsManager, SkillInfo
+    from ..tools.multimodal_tools import MultimodalTools, get_multimodal_tools_schema
+    from .sub_agent import SubAgent
+    from ..config import settings
 
 
 class MainAgent(BaseAgent):
@@ -133,7 +204,10 @@ class MainAgent(BaseAgent):
         # 如果无法动态获取，使用后备方法
         if not skill_names:
             # 方法1：从配置获取
-            from config import settings
+            if __package__ in (None, ""):
+                from config import settings
+            else:
+                from ..config import settings
 
             if hasattr(settings, "skills") and hasattr(
                 settings.skills, "skills_metadata"
@@ -244,7 +318,9 @@ class MainAgent(BaseAgent):
                 return {"success": False, "error": f"Skill不存在: {skill_name}"}
 
             # 获取技能元数据
-            skill_info: Optional[SkillInfo] = self.skills_manager.loaded_skills.get(skill_name)
+            skill_info: Optional[SkillInfo] = self.skills_manager.loaded_skills.get(
+                skill_name
+            )
 
             # 清理描述
             desc = schema.description.strip()
@@ -290,9 +366,9 @@ class MainAgent(BaseAgent):
                 result["usage_guide"] = skill_info.usage_guide
                 # 类型提示: loading_info是字典
                 result["loading_info"]["metadata_loaded"] = skill_info.metadata_loaded
-                result["loading_info"][
-                    "full_instruction_loaded"
-                ] = skill_info.full_instruction_loaded
+                result["loading_info"]["full_instruction_loaded"] = (
+                    skill_info.full_instruction_loaded
+                )
 
                 # 添加skill对应的工具列表（渐进式披露：让模型知道有哪些工具可用）
                 if skill_info.functions:
@@ -384,12 +460,12 @@ class MainAgent(BaseAgent):
                     tool_name = f"{skill_name}_{func_name}"
 
                     # 创建简化的schema
-                    from utils.tool_schemas import get_schema
+                    from ..utils.tool_schemas import get_schema
 
                     schema = get_schema(tool_name, self.skills_manager)
 
                     # 手动创建schema覆盖参数
-                    from utils.tool_registry import ToolSchema, ToolParameter
+                    from ..utils.tool_registry import ToolSchema, ToolParameter
 
                     params = []
                     for param_name, param_info in func_info.get(
@@ -452,21 +528,45 @@ class MainAgent(BaseAgent):
                     or os.getenv("LLM_API_URL")
                     or os.getenv("OPENAI_BASE_URL")
                 )
-                model_name = model_config.get("name") or os.getenv(
-                    "LLM_MODEL_NAME", "deepseek-chat"
-                ) or "deepseek-chat"
+                model_name = (
+                    model_config.get("name")
+                    or os.getenv("LLM_MODEL_NAME", "deepseek-chat")
+                    or "deepseek-chat"
+                )
                 gateway = model_config.get("gateway", "openai")
 
                 if not api_key:
-                    # 回退到简单响应
-                    return "错误：未设置API密钥。请设置 LLM_API_KEY 环境变量。"
+                    # API Key 未设置，抛出异常让 react_loop 显示错误
+                    error_msg = "❌ API Key 未设置！请在客户端 Settings 中配置 API Key，或运行 aacode init 设置。"
+                    print(error_msg)
+                    raise RuntimeError(error_msg)
 
-                # 确保base_url不为None
+                # 确保base_url不为None，根据模型名称和网关类型设置默认URL
                 if not base_url:
+                    model_lower = model_name.lower() if model_name else ""
                     if gateway == "anthropic":
-                        base_url = "https://api.minimax.chat/v1"
+                        # 根据模型选择正确的Anthropic兼容端点
+                        if "minimax" in model_lower:
+                            base_url = "https://api.minimax.chat/anthropic"
+                        elif "deepseek" in model_lower:
+                            base_url = "https://api.deepseek.com/anthropic"
+                        elif "kimi" in model_lower or "moonshot" in model_lower:
+                            base_url = "https://api.moonshot.cn/anthropic"
+                        elif "claude" in model_lower:
+                            base_url = "https://api.anthropic.com"
+                        else:
+                            base_url = "https://api.anthropic.com"
                     else:
-                        base_url = "https://api.openai.com/v1"
+                        if "minimax" in model_lower:
+                            base_url = "https://api.minimax.chat/v1"
+                        elif "deepseek" in model_lower:
+                            base_url = "https://api.deepseek.com/v1"
+                        elif "kimi" in model_lower or "moonshot" in model_lower:
+                            base_url = "https://api.moonshot.cn/v1"
+                        elif "claude" in model_lower:
+                            base_url = "https://api.openai.com/v1"
+                        else:
+                            base_url = "https://api.openai.com/v1"
 
                 # 根据网关类型创建客户端
                 if gateway == "anthropic":
@@ -562,7 +662,7 @@ class MainAgent(BaseAgent):
         model_config: Dict,
     ) -> str:
         """调用OpenAI兼容API"""
-        client = openai.OpenAI(api_key=api_key, base_url=base_url)
+        client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
 
         # 确保消息格式正确
         formatted_messages = []
@@ -572,26 +672,79 @@ class MainAgent(BaseAgent):
             if role and content:
                 formatted_messages.append({"role": role, "content": content})
 
+        # 处理不同模型的temperature限制
+        temperature = model_config.get("temperature", 0.1)
+        model_lower = model_name.lower() if model_name else ""
+        # Kimi模型只接受temperature=1
+        if "kimi" in model_lower or "moonshot" in model_lower:
+            temperature = 1.0
+
         # 流式输出
-        print("🤖 模型思考中", end="", flush=True)
+        _stream_print("🤖 模型思考中")
         full_response = ""
 
-        stream = client.chat.completions.create(
+        stream = await client.chat.completions.create(
             model=model_name,
             messages=formatted_messages,
-            temperature=model_config.get("temperature", 0.1),
+            temperature=temperature,
             max_tokens=model_config.get("max_tokens", 8000),
             stream=True,  # 启用流式输出
         )
 
-        # 处理流式响应
-        for chunk in stream:
-            if chunk.choices[0].delta.content is not None:
-                content_chunk = chunk.choices[0].delta.content
-                full_response += content_chunk
-                print(content_chunk, end="", flush=True)
+        # ─── 流式响应处理 ───
+        # reasoning_content: 模型的思考过程（Kimi/DeepSeek-R1），用 _stream_print 输出
+        # delta.content: 模型的正式回复，用 _stream_print 输出
+        # 系统标记行（💭、Thought:）：直接 print，不走 _stream_print，前端通过前缀识别
+        thinking_printed = False
+        thinking_content = ""
+        async for chunk in stream:
+            delta = chunk.choices[0].delta
+            # 处理 reasoning_content（Kimi/DeepSeek-R1 的 thinking）
+            reasoning = getattr(delta, 'reasoning_content', None)
+            if reasoning:
+                if not thinking_printed:
+                    # ⚠️ 标记行直接 print，不走 _stream_print，否则 \x00 转义会干扰前端识别
+                    print("💭 思考过程:", flush=True)
+                    thinking_printed = True
+                thinking_content += reasoning
+                _stream_print(reasoning)  # 模型 token，走转义
+            # 处理正常内容
+            if delta.content is not None:
+                if thinking_printed:
+                    # ⚠️ Thought: 标记行直接 print，前端通过 startsWith('Thought:') 识别类型切换
+                    print("\nThought: ", end="", flush=True) if _is_tty else print("\nThought: ", flush=True)
+                    thinking_printed = False
+                full_response += delta.content
+                _stream_print(delta.content)
 
-        print()  # 换行
+        if _is_tty:
+            print()  # CLI 换行
+
+        # ─── thinking 内容拼接到返回值 ───
+        # 将 thinking 拼到 full_response 前面，格式：
+        #   "💭 思考过程:\n{thinking}\n\nThought: {正式回复}"
+        # 
+        # 这个 full_response 会被用于：
+        #   1. react_loop messages 上下文（模型后续迭代能看到完整的 thinking）
+        #   2. _parse_response 解析出 thought（正则匹配 Thought: 后面的内容）
+        #   3. 保存到会话文件（历史记录需要显示 thinking）
+        #
+        # ⚠️ 不要去掉 thinking 拼接，否则：
+        #   - 上下文不完整，模型丢失推理过程
+        #   - 历史记录看不到 thinking 内容
+        if thinking_content:
+            # 去掉 full_response 开头可能的 \n 和 Thought: 前缀（模型可能自己输出了）
+            # 避免拼接后出现 "Thought: \nThought:" 的重复
+            clean_response = full_response.lstrip('\n')
+            if clean_response.startswith('Thought:'):
+                clean_response = clean_response[len('Thought:'):].lstrip()
+            if clean_response.strip():
+                full_response = f"💭 思考过程:\n{thinking_content}\n\nThought: {clean_response}"
+            else:
+                # full_response 为空（模型所有内容都在 reasoning_content 中）
+                # 不加 Thought: 前缀，避免 _parse_response 误判为任务完成
+                full_response = f"💭 思考过程:\n{thinking_content}"
+
         return full_response if full_response is not None else ""
 
     async def _call_anthropic_api(
@@ -603,28 +756,31 @@ class MainAgent(BaseAgent):
         model_config: Dict,
     ) -> str:
         """调用真正的Anthropic兼容API（如MiniMax）"""
-        # 处理MiniMax的特殊URL格式
-        # MiniMax的Anthropic兼容端点需要特殊处理
+        # 处理Anthropic兼容端点的URL格式调整
+        # MiniMax、DeepSeek、Kimi的Anthropic兼容端点需要特殊处理
         adjusted_base_url = base_url
-        
-        # 对于MiniMax，处理Anthropic兼容端点
-        if base_url and "minimax" in base_url.lower():
+
+        # 检查是否是Anthropic兼容端点（MiniMax、DeepSeek、Kimi）
+        if base_url and any(
+            provider in base_url.lower()
+            for provider in ["minimax", "deepseek", "moonshot"]
+        ):
             # Anthropic SDK会自动添加/v1/messages，所以我们需要确保base_url正确
             if base_url.endswith("/v1"):
                 # /v1 会导致重复的/v1路径，改为 /anthropic
                 adjusted_base_url = base_url[:-3] + "/anthropic"
-                print(f"🔧 调整MiniMax URL避免重复/v1: {base_url} -> {adjusted_base_url}")
+                print(f"🔧 调整URL避免重复/v1: {base_url} -> {adjusted_base_url}")
             elif base_url.endswith("/v1/anthropic"):
                 # 已经是 /v1/anthropic，这会导致重复/v1，需要调整
                 # Anthropic SDK会添加/v1/messages，所以实际路径会是 /v1/anthropic/v1/messages
                 # 应该改为 /anthropic
                 adjusted_base_url = base_url.replace("/v1/anthropic", "/anthropic")
-                print(f"🔧 调整MiniMax URL避免重复路径: {base_url} -> {adjusted_base_url}")
+                print(f"🔧 调整URL避免重复路径: {base_url} -> {adjusted_base_url}")
             elif not base_url.endswith("/anthropic"):
                 # 确保以 /anthropic 结尾
                 adjusted_base_url = base_url.rstrip("/") + "/anthropic"
                 print(f"🔧 添加Anthropic路径: {base_url} -> {adjusted_base_url}")
-        
+
         # 使用真正的Anthropic客户端
         client = anthropic.Anthropic(
             api_key=api_key,
@@ -635,7 +791,7 @@ class MainAgent(BaseAgent):
         # Anthropic使用不同的消息格式：system参数和messages数组
         system_message = ""
         formatted_messages = []
-        
+
         for msg in messages:
             role = msg.get("role", "user")
             content = msg.get("content", "")
@@ -650,18 +806,20 @@ class MainAgent(BaseAgent):
                     formatted_messages.append({"role": anth_role, "content": content})
 
         # 流式输出
-        print("🤖 模型思考中", end="", flush=True)
+        _stream_print("🤖 模型思考中")
         full_response = ""
 
         try:
             # 使用异步方式处理流式响应
             import asyncio
-            
+
             # 在异步环境中运行同步的流式调用
             loop = asyncio.get_event_loop()
-            
+
             def sync_stream_call():
                 response = ""
+                thinking_content = ""
+                in_thinking = False
                 # 准备stream参数
                 stream_kwargs = {
                     "model": model_name,
@@ -669,17 +827,64 @@ class MainAgent(BaseAgent):
                     "temperature": model_config.get("temperature", 0.1),
                     "messages": formatted_messages,
                 }
-                
+
                 # 只有在有系统消息时才添加system参数
                 if system_message:
                     stream_kwargs["system"] = system_message
-                
+
                 with client.messages.stream(**stream_kwargs) as stream:
-                    for text in stream.text_stream:
-                        response += text
-                        print(text, end="", flush=True)
+                    for event in stream:
+                        event_type = getattr(event, 'type', '')
+
+                        # content_block_start: 新的内容块开始
+                        if event_type == 'content_block_start':
+                            block = getattr(event, 'content_block', None)
+                            if block:
+                                block_type = getattr(block, 'type', '')
+                                if block_type == 'thinking':
+                                    in_thinking = True
+                                    print(f"\n💭 思考过程:", flush=True)
+                                elif block_type == 'text':
+                                    if in_thinking:
+                                        print("\nThought: ", flush=True)
+                                        in_thinking = False
+
+                        # content_block_delta: 内容块增量
+                        elif event_type == 'content_block_delta':
+                            delta = getattr(event, 'delta', None)
+                            if delta:
+                                delta_type = getattr(delta, 'type', '')
+                                if delta_type == 'thinking_delta':
+                                    text = getattr(delta, 'thinking', '')
+                                    if text:
+                                        thinking_content += text
+                                        _stream_print(text)
+                                elif delta_type == 'text_delta':
+                                    text = getattr(delta, 'text', '')
+                                    if text:
+                                        response += text
+                                        _stream_print(text)
+
+                        # content_block_stop: 内容块结束
+                        elif event_type == 'content_block_stop':
+                            if in_thinking:
+                                print("\n", flush=True)
+                                in_thinking = False
+
+                # 把 thinking 内容拼到返回值前面
+                # ⚠️ response 开头可能有模型自己输出的 "\nThought:" 前缀，
+                # 拼接前先清理，避免出现 "Thought: \nThought:" 的重复
+                if thinking_content:
+                    clean_resp = response.lstrip('\n')
+                    if clean_resp.startswith('Thought:'):
+                        clean_resp = clean_resp[len('Thought:'):].lstrip()
+                    if clean_resp.strip():
+                        response = f"💭 思考过程:\n{thinking_content}\n\nThought: {clean_resp}"
+                    else:
+                        response = f"💭 思考过程:\n{thinking_content}"
+
                 return response
-            
+
             full_response = await loop.run_in_executor(None, sync_stream_call)
             print()
             return full_response
@@ -687,10 +892,22 @@ class MainAgent(BaseAgent):
         except Exception as e:
             # 如果Anthropic格式失败，尝试OpenAI格式作为后备
             error_str = str(e).lower()
-            if "unsupported" in error_str or "invalid" in error_str or "404" in error_str:
-                print(f"\n⚠️  Anthropic格式失败 ({error_str[:50]}...)，尝试OpenAI格式...")
+            if (
+                "unsupported" in error_str
+                or "invalid" in error_str
+                or "404" in error_str
+                or "401" in error_str
+            ):
+                print(
+                    f"\n⚠️  Anthropic格式失败 ({error_str[:50]}...)，尝试OpenAI格式..."
+                )
+                # 调整URL为OpenAI端点
+                openai_base_url = base_url
+                if "/anthropic" in base_url:
+                    # 将/anthropic替换为/v1
+                    openai_base_url = base_url.replace("/anthropic", "/v1")
                 return await self._call_openai_api(
-                    api_key, base_url, model_name, messages, model_config
+                    api_key, openai_base_url, model_name, messages, model_config
                 )
             raise
 
@@ -818,7 +1035,7 @@ class MainAgent(BaseAgent):
                 registered_count += 1
 
         # 注册多模态工具的schema
-        from utils.tool_registry import ToolSchema, ToolParameter
+        from ..utils.tool_registry import ToolSchema, ToolParameter
 
         multimodal_schema = get_multimodal_tools_schema()
         for schema_dict in multimodal_schema:
@@ -876,9 +1093,13 @@ class MainAgent(BaseAgent):
         print(f"\n🤖 主Agent开始执行任务: {task}")
         self.start_time = asyncio.get_event_loop().time()
 
-        # 创建会话并显示 session_id
-        session_id = await self.session_manager.create_session(task)
-        print(f"📋 会话ID: {session_id}")
+        # 如果已有当前会话，复用；否则创建新会话
+        if self.session_manager.current_session_id:
+            session_id = self.session_manager.current_session_id
+            print(f"📋 复用会话ID: {session_id}")
+        else:
+            session_id = await self.session_manager.create_session(task)
+            print(f"📋 会话ID: {session_id}")
         print(f"💡 提示: 使用 --session {session_id} 可以继续此会话")
 
         # 更新系统提示，包含项目分析结果
@@ -900,31 +1121,87 @@ class MainAgent(BaseAgent):
             }
         )
 
+        # ─── 加载同一会话的历史消息（多轮任务上下文衔接） ───
+        # 从 session_manager 获取当前会话的历史消息（不含 system 消息）
+        # 传给 react_loop.run，让模型在后续轮次中能看到之前的对话
+        # ⚠️ 这是多轮任务上下文衔接的关键，不要去掉
+        history_messages = await self.session_manager.get_messages(include_system=False)
+        # 过滤掉当前任务的消息（还没保存，避免重复）
+        # 历史消息是之前轮次保存的，当前任务的消息在 execute 结束后才保存
+
         # 运行ReAct循环
         try:
             result = await self.react_loop.run(
                 initial_prompt=full_system_prompt,
                 task_description=task,
                 todo_manager=todo_manager,
+                history_messages=history_messages if history_messages else None,
             )
         except asyncio.CancelledError:
-            # 任务被取消，重新抛出以便上层处理
             raise
         except Exception as e:
-            # 记录错误
             print(f"❌ ReAct循环执行失败: {e}")
             import traceback
-
             traceback.print_exc()
-            # 重新抛出异常
             raise
         finally:
-            # 确保资源被清理，即使发生异常
             try:
                 if hasattr(self, "web_tools"):
                     await self.web_tools.cleanup()
             except Exception as e:
                 print(f"⚠️  清理web_tools时出错: {e}")
+
+        # 把 react_loop 的对话历史保存到 session_manager
+        # ─── 保存会话历史 ───────────────────────────────────────────
+        # step.thought 的内容来自 _call_openai_api 的 full_response，格式为：
+        #   有 thinking 时: "💭 思考过程:\n{thinking内容}\n\nThought: {正式回复}"
+        #   无 thinking 时: "{正式回复}"（纯文本，可能有 Thought: 前缀也可能没有）
+        #
+        # ⚠️ 必须保留完整的 thinking 内容，不要清理掉：
+        #   1. 历史记录需要显示 thinking（前端 parseAssistantMessage 能正确解析）
+        #   2. thinking 内容在 react_loop 运行时上下文中也是完整的
+        #      （messages.append 用的是原始 response，包含 thinking）
+        #   3. 去掉 thinking 会导致历史记录不完整，用户看不到模型的推理过程
+        #
+        # ✅ 任务完成标记只存纯标记，不带内容（内容已在最后一个 step 中保存）
+        # ─────────────────────────────────────────────────────────────
+        try:
+            # 先保存用户任务消息（如果还没有）
+            has_user_msg = any(
+                m.role == "user" and m.content == task
+                for m in self.session_manager.current_messages
+            )
+            if not has_user_msg:
+                await self.session_manager.add_message("user", task)
+
+            steps = self.react_loop.steps
+            for step in steps:
+                # 用 raw_response（完整模型响应，含 thinking）保存，而非 step.thought（只有 thought 部分）
+                # raw_response 格式：有 thinking 时 "💭 思考过程:\n{thinking}\n\nThought: {content}"
+                #                   无 thinking 时 "{content}"
+                thought_content = step.raw_response or step.thought
+                # 确保有可识别的前缀（前端 parseAssistantMessage 依赖前缀识别类型）
+                if not thought_content.startswith("Thought:") and not thought_content.startswith("💭 思考过程"):
+                    thought_content = f"Thought: {thought_content}"
+                if step.actions:
+                    actions_parts = []
+                    for a in step.actions:
+                        part = f"Action: {a.action}"
+                        if a.action_input:
+                            import json as _json
+                            part += f"\nInput: {_json.dumps(a.action_input, ensure_ascii=False)[:500]}"
+                        if a.observation:
+                            part += f"\nObservation: {a.observation[:2000]}"
+                        actions_parts.append(part)
+                    thought_content = f"{thought_content}\n\n" + "\n\n".join(actions_parts)
+                await self.session_manager.add_message("assistant", thought_content)
+
+            # ⚠️ 只存纯标记，不要带 summary 内容，否则和最后一个 step 重复
+            await self.session_manager.add_message("assistant", "✅ 任务完成")
+            await self.session_manager._save_session()
+            self.session_manager._save_sessions_index()
+        except Exception as e:
+            print(f"⚠️  保存会话历史失败: {e}")
 
         # 更新统计
         self.iterations = len(self.react_loop.steps)
@@ -932,7 +1209,7 @@ class MainAgent(BaseAgent):
         execution_time = 0.0
         if self.start_time is not None:
             execution_time = asyncio.get_event_loop().time() - self.start_time
-            
+
         return {
             **result,
             "session_id": session_id,
@@ -1208,7 +1485,9 @@ class MainAgent(BaseAgent):
                 )
                 if result.returncode == 0:
                     if result.stdout.strip():
-                        git_status["changed_files"] = len(result.stdout.strip().split("\n"))
+                        git_status["changed_files"] = len(
+                            result.stdout.strip().split("\n")
+                        )
                     else:
                         git_status["changed_files"] = 0
                     git_status["has_changes"] = bool(result.stdout.strip())
@@ -1238,18 +1517,6 @@ class MainAgent(BaseAgent):
             return {"error": str(e)}
 
     def __del__(self):
-        """析构函数，确保资源被清理"""
-        try:
-            if hasattr(self, "web_tools"):
-                # 尝试同步清理
-                import asyncio
-
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # 如果事件循环正在运行，安排异步清理
-                    asyncio.create_task(self.web_tools.cleanup())
-                else:
-                    # 否则同步清理
-                    loop.run_until_complete(self.web_tools.cleanup())
-        except:
-            pass  # 忽略析构函数中的错误
+        """析构函数 - 不再尝试异步清理，避免 Windows 上 _sock.fileno() 错误刷屏。
+        资源清理由 execute() 的 finally 块中 web_tools.cleanup() 完成。"""
+        pass

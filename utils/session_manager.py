@@ -68,18 +68,48 @@ def _download_tiktoken_file() -> Optional[str]:
 
 
 def _load_tiktoken_encoding():
-    """加载 tiktoken 编码，支持镜像下载"""
-    try:
-        import tiktoken
+    """加载 tiktoken 编码，支持镜像下载，添加超时保护"""
+    import os
+    import threading
 
-        return tiktoken.get_encoding("cl100k_base")
-    except Exception as e:
-        error_msg = str(e)
+    cache_file = os.path.expanduser("~/Library/Caches/tiktoken/cl100k_base.tiktoken")
+
+    # 快速检查缓存文件是否存在且有效
+    if os.path.exists(cache_file):
+        file_size = os.path.getsize(cache_file)
+        # 有效的 tiktoken 文件应该远大于 100 字节
+        if file_size < 100:
+            print(f"\n⚠️  tiktoken 缓存文件损坏（仅 {file_size} 字节），将使用简单估算")
+            return None
+
+    result = [None]
+    exception = [None]
+
+    def _load():
+        try:
+            import tiktoken
+
+            result[0] = tiktoken.get_encoding("cl100k_base")
+        except Exception as e:
+            exception[0] = e
+
+    # 使用线程实现超时，避免主线程阻塞
+    t = threading.Thread(target=_load, daemon=True)
+    t.start()
+    t.join(timeout=5)  # 5秒超时
+
+    if t.is_alive():
+        print(f"\n⚠️  tiktoken 加载超时，将使用简单估算")
+        return None
+
+    if exception[0]:
+        error_msg = str(exception[0])
         if (
             "Connection" in error_msg
             or "ConnectionResetError" in error_msg
             or "HTTPError" in error_msg
             or "404" in error_msg
+            or "timed out" in error_msg.lower()
         ):
             print(f"\n⚠️  tiktoken 文件下载失败，将使用简单估算")
             print(
@@ -87,6 +117,8 @@ def _load_tiktoken_encoding():
             )
             print(f"   保存到: ~/Library/Caches/tiktoken/cl100k_base.tiktoken")
         return None
+
+    return result[0]
 
 
 @dataclass
@@ -117,9 +149,10 @@ class SessionSummary:
 class SessionManager:
     """会话管理器"""
 
-    def __init__(self, project_path: Path, max_tokens: int = 200000):
-        self.project_path = project_path
-        self.sessions_dir = project_path / ".aacode" / "sessions"
+    def __init__(self, project_path, max_tokens: int = 200000):
+        from pathlib import Path
+        self.project_path = Path(project_path) if not isinstance(project_path, Path) else project_path
+        self.sessions_dir = self.project_path / ".aacode" / "sessions"
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
         self.max_tokens = max_tokens
 
@@ -218,14 +251,16 @@ class SessionManager:
             ),
         )
 
-        user_msg = SessionMessage(
-            role="user",
-            content=task,
-            timestamp=datetime.now().timestamp(),
-            tokens=self._count_tokens(task),
-        )
-
-        self.current_messages.extend([system_msg, user_msg])
+        self.current_messages = [system_msg]
+        # 只有 task 非空时才添加 user 消息
+        if task and task.strip():
+            user_msg = SessionMessage(
+                role="user",
+                content=task,
+                timestamp=datetime.now().timestamp(),
+                tokens=self._count_tokens(task),
+            )
+            self.current_messages.append(user_msg)
         session_summary.total_messages = len(self.current_messages)
         session_summary.total_tokens = self._get_total_tokens()
 
@@ -270,12 +305,9 @@ class SessionManager:
         current_tokens = self._get_total_tokens()
 
         if current_tokens + new_tokens > self.max_tokens:
-            # 触发上下文缩减
             await self._compact_context()
             current_tokens = self._get_total_tokens()
-
             if current_tokens + new_tokens > self.max_tokens:
-                # 如果还是超限，拒绝添加
                 return False
 
         # 添加消息
@@ -295,6 +327,9 @@ class SessionManager:
             session_summary.last_activity = datetime.now().timestamp()
             session_summary.total_messages = len(self.current_messages)
             session_summary.total_tokens = self._get_total_tokens()
+            # 如果 title 为空，用第一条 user 消息作为标题
+            if role == "user" and (not session_summary.title or session_summary.title.strip() == ""):
+                session_summary.title = content[:50] + ("..." if len(content) > 50 else "")
 
         # 保存
         await self._save_session()
@@ -356,10 +391,11 @@ class SessionManager:
         # 生成摘要
         old_msgs = self.current_messages[:-3]
         if old_msgs:
+            compact_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             summary = f"之前的对话包含{len(old_msgs)}条消息，主要讨论了编程相关的任务。"
             summary_msg = SessionMessage(
                 role="system",
-                content=f"上下文摘要: {summary}",
+                content=f"上下文摘要（压缩时间: {compact_time}）: {summary}",
                 timestamp=datetime.now().timestamp(),
                 tokens=self._count_tokens(summary),
             )

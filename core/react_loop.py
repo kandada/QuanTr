@@ -8,12 +8,21 @@
 import asyncio
 import json
 import re
+import sys
+from pathlib import Path
 from typing import Dict, List, Any, Optional, Callable, Awaitable
 from dataclasses import dataclass
-from pathlib import Path
-from utils.agent_logger import get_logger
-from utils.tool_registry import get_global_registry
-from config import settings  # 导入全局配置
+from datetime import datetime
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+    from ..utils.agent_logger import get_logger
+    from ..utils.tool_registry import get_global_registry
+    from ..config import settings
+else:
+    from ..utils.agent_logger import get_logger
+    from ..utils.tool_registry import get_global_registry
+    from ..config import settings
 
 
 @dataclass
@@ -30,6 +39,7 @@ class ReActStep:
     """ReAct单步记录"""
 
     thought: str
+    raw_response: str = ""  # 模型完整响应（含 thinking），用于保存会话历史
     actions: Optional[List[ActionItem]] = None
     timestamp: float = 0.0
 
@@ -78,7 +88,7 @@ class AsyncReActLoop:
         self.context_config = context_config
 
         # Token计数器（用于智能缩减）
-        from utils.session_manager import _load_tiktoken_encoding
+        from ..utils.session_manager import _load_tiktoken_encoding
 
         self.encoding = _load_tiktoken_encoding()
 
@@ -87,6 +97,7 @@ class AsyncReActLoop:
         initial_prompt: str,
         task_description: str,
         todo_manager: Optional[Any] = None,
+        history_messages: Optional[List[Dict]] = None,
     ) -> Dict[str, Any]:
         """
         运行ReAct循环
@@ -95,6 +106,7 @@ class AsyncReActLoop:
             initial_prompt: 初始提示
             task_description: 任务描述
             todo_manager: to-do-list管理器
+            history_messages: 同一会话的历史对话消息（用于多轮任务上下文衔接）
 
         Returns:
             执行结果
@@ -116,24 +128,25 @@ class AsyncReActLoop:
                 if "error" not in todo_summary:
                     todo_section = f"""
 
-## 📋 任务待办清单
-已创建待办清单文件，请在每次思考时参考和更新待办事项：
-- 待办清单文件: {todo_summary.get('todo_file', '未知')}
-- 总事项: {todo_summary.get('total_todos', 0)} 
-- 已完成: {todo_summary.get('completed_todos', 0)}
-- 待处理: {todo_summary.get('pending_todos', 0)}
-- 完成率: {todo_summary.get('completion_rate', 0):.1f}%
+📋 任务待办清单
+简单任务比如仅仅是回答用户，不需要制定和更新待办清单，查看相关文件和分析后快速回答即可。
+复杂任务则请你使用待办任务清单:
+- 待办清单文件: {todo_summary.get("todo_file", "未知")}
+- 总事项: {todo_summary.get("total_todos", 0)} 
+- 已完成: {todo_summary.get("completed_todos", 0)}
+- 待处理: {todo_summary.get("pending_todos", 0)}
+- 完成率: {todo_summary.get("completion_rate", 0):.1f}%
 
-重要提示 - 待办清单管理：
-在每次思考时，请参考待办清单并更新状态：
-1. 当完成一个子任务时，在思考中提及并标记对应的待办事项为完成
-2. 如果发现需要新的任务步骤，添加新的待办事项
-3. 如果任务计划有变，更新现有的待办事项
-4. 每次迭代后添加执行记录
-备注：简单任务比如仅仅是回答用户，不需要制定待办，查看相关文件和分析后快速回答即可
+备注：
+1. add_todo_item 会返回 todo_id（如 t1、t2），请记住它
+2. 标记完成时，优先使用 mark_todo_completed(todo_id="t1")，精确可靠
+3. 如果发现需要新的任务步骤，添加新的待办事项
+4. 如果任务计划有变，更新现有的待办事项
 
-示例思考：
-"我已经完成了用户认证API的开发。现在需要标记'实现认证API'待办事项为完成，并添加'测试认证功能'作为新的待办事项。"
+示例：
+add_todo_item(description="实现认证API") → 返回 todo_id: "t1"
+mark_todo_completed(todo_id="t1") → 精确标记完成
+
 """
             except Exception as e:
                 print(f"⚠️  获取待办清单摘要失败: {e}")
@@ -150,11 +163,29 @@ class AsyncReActLoop:
 
         messages = [
             {"role": "system", "content": system_prompt},
+        ]
+
+        # ─── 多轮任务上下文衔接 ───────────────────────────────────
+        # 同一会话中，第二轮及后续任务需要看到之前的对话历史
+        # history_messages 来自 session_manager，包含之前所有轮次的 user/assistant 消息
+        # 插入到 system prompt 之后、当前任务之前，让模型了解之前做了什么
+        # ⚠️ 不要去掉这段逻辑，否则多轮任务间上下文会脱节
+        # ⚠️ token 超限时会由 _compact_context 自动压缩，不需要在这里截断
+        if history_messages:
+            for msg in history_messages:
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if role in ("user", "assistant") and content:
+                    messages.append({"role": role, "content": content})
+            if len(history_messages) > 0:
+                print(f"📜 已加载 {len(history_messages)} 条历史消息到上下文")
+
+        messages.append(
             {
                 "role": "user",
                 "content": f"任务：{task_description}\n\n当前上下文：\n{self.current_context}\n\n请按照Thought->Action的格式执行（不要输出Observation，系统会自动执行工具并返回结果）",
             },
-        ]
+        )
 
         start_time = asyncio.get_event_loop().time()
 
@@ -179,13 +210,13 @@ class AsyncReActLoop:
             # 解析响应（支持多个action）
             thought, actions = self._parse_response(response)
 
-            # 自动更新待办清单
-            if todo_manager:
-                await self._update_todo_from_thought(thought, todo_manager)
+            # 自动更新待办清单（已简化：不再自动记录思考过程）
+            # if todo_manager:
+            #     await self._update_todo_from_thought(thought, todo_manager)
 
-            # 记录步骤
+            # 记录步骤（raw_response 保留完整模型响应，含 thinking，用于会话历史保存）
             step = ReActStep(
-                thought=thought, actions=[], timestamp=asyncio.get_event_loop().time()
+                thought=thought, raw_response=response, actions=[], timestamp=asyncio.get_event_loop().time()
             )
             self.steps.append(step)
 
@@ -196,7 +227,7 @@ class AsyncReActLoop:
                 thought, actions[0].action if actions else None, task_description
             ):
                 print("✅ 任务完成")
-                print(f"\n📋 任务总结:\n{thought}")
+                # thought 内容已在流式输出中打印过，不再重复打印
                 total_time = asyncio.get_event_loop().time() - start_time
                 if self.logger:
                     await self.logger.log_iteration(
@@ -211,11 +242,11 @@ class AsyncReActLoop:
                         final_status="completed",
                         total_iterations=iteration + 1,
                         total_time=total_time,
-                        summary={"final_thought": thought},
+                        summary={"final_thought": response},
                     )
                 return {
                     "status": "completed",
-                    "final_thought": thought,
+                    "final_thought": response,
                     "iterations": iteration + 1,
                     "steps": self.steps,
                     "total_time": total_time,
@@ -226,7 +257,7 @@ class AsyncReActLoop:
             all_observations_for_display = []  # 用于显示的简化版本
 
             for i, action_item in enumerate(actions):
-                print(f"🛠️  动作 {i+1}/{len(actions)}: {action_item.action}")
+                print(f"🛠️  动作 {i + 1}/{len(actions)}: {action_item.action}")
                 action_start = asyncio.get_event_loop().time()
 
                 # 添加重试机制（使用配置的最大重试次数，来自 aacode_config.yaml）
@@ -303,6 +334,15 @@ class AsyncReActLoop:
                     observation_for_display or observation or ""
                 )  # 用户看到简化版本
 
+                # 实时打印 Observation（供客户端显示）
+                display_obs = observation_for_display or observation or ""
+                if display_obs:
+                    # 截断过长的输出，避免刷屏
+                    max_display = 3000
+                    if len(display_obs) > max_display:
+                        display_obs = display_obs[:max_display] + f"\n... (已截断，共{len(observation_for_display or observation)}字符)"
+                    print(f"📋 Observation:\n{display_obs}", flush=True)
+
                 # 🔥 新增：从错误中自动更新待办清单
                 if todo_manager:
                     await self._update_todo_from_error(observation, todo_manager)
@@ -325,18 +365,31 @@ class AsyncReActLoop:
 
             # 合并所有观察结果（Agent获取完整内容）
             observation = "\n".join(
-                [f"动作 {i+1} 结果: {obs}" for i, obs in enumerate(all_observations)]
+                [f"动作 {i + 1} 结果: {obs}" for i, obs in enumerate(all_observations)]
             )
 
             # 合并显示版本（用户看到简化版本）
             observation_for_display = "\n".join(
                 [
-                    f"动作 {i+1} 结果: {obs}"
+                    f"动作 {i + 1} 结果: {obs}"
                     for i, obs in enumerate(all_observations_for_display)
                 ]
             )
 
-            # 上下文一致性检查
+            # 添加到上下文消息（Agent获取完整内容，包括 thinking）
+            # ⚠️ response 包含完整的 "💭 思考过程:\n{thinking}\n\nThought: {content}"
+            # 不要清理或截断 response，模型需要看到完整的推理过程
+            messages.append({"role": "assistant", "content": response})
+            messages.append(
+                {
+                    "role": "user",
+                    # ⚠️ 这是 react_loop 迭代驱动消息，不是用户输入
+                    # 用 [系统] 前缀明确区分，避免模型误以为是用户在说话
+                    "content": f"[系统] 工具执行结果如下，请根据结果继续执行下一步（Thought→Action），如果任务已完成则直接输出最终总结。\n\n观察：{observation}",
+                }
+            )
+
+            # 上下文一致性检查（在 messages 更新后，确保 assistant token 统计正确）
             await self._validate_context_consistency(
                 all_observations, all_observations_for_display, messages
             )
@@ -355,15 +408,6 @@ class AsyncReActLoop:
             # 更新上下文（使用完整observation）
             await self.context_manager.update(observation)
             self.current_context = await self.context_manager.get_compact_context()
-
-            # 添加观察到消息（Agent获取完整内容）
-            messages.append({"role": "assistant", "content": response})
-            messages.append(
-                {
-                    "role": "user",
-                    "content": f"观察：{observation}\n\n请继续...",  # Agent获取完整observation
-                }
-            )
 
             # 智能上下文缩减检查（基于token数）
             current_tokens = self._estimate_tokens(messages)
@@ -616,9 +660,9 @@ class AsyncReActLoop:
                     # 记录JSON解析错误，但继续尝试其他格式
                     print(f"⚠️  JSON解析失败 (pattern {pattern[:20]}...): {str(e)}")
                     if json_str:
-                        print(f"   尝试的JSON: {json_str[:100]}...")
+                        print(f"⚠️  尝试的JSON: {json_str[:100]}...")
                     else:
-                        print(f"   尝试的JSON: [无法获取JSON字符串]")
+                        print(f"⚠️  尝试的JSON: [无法获取JSON字符串]")
                     continue
                 except Exception as e:
                     print(f"⚠️  JSON处理异常: {str(e)}")
@@ -702,8 +746,7 @@ class AsyncReActLoop:
                                 break
                             except json.JSONDecodeError as e:
                                 # JSON解析失败，提供详细错误信息
-                                print(f"⚠️  Action Input JSON解析失败: {str(e)}")
-                                print(f"   原始输入: {input_text[:100]}...")
+                                print(f"⚠️  Action Input JSON解析失败: {str(e)} | 原始输入: {input_text[:100]}...")
                                 action_input = {
                                     "_error": f"JSON格式错误: {str(e)}",
                                     "_raw": input_text,
@@ -1169,16 +1212,19 @@ class AsyncReActLoop:
         compacted_messages.extend(first_rounds_messages)  # 添加前N轮（任务规划）
 
         # 插入三块智能摘要
+        compact_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         summary_content = f"""## 🧠 智能历史摘要（AI生成）
 
+**⏰ 压缩时间**: {compact_time}
+
 ### 📁 文件内容摘要
-{summaries['file_content_summary'] or '无文件读取操作'}
+{summaries["file_content_summary"] or "无文件读取操作"}
 
 ### 🔧 工具执行摘要
-{summaries['tool_execution_summary'] or '无工具执行'}
+{summaries["tool_execution_summary"] or "无工具执行"}
 
 ### 💡 重要信息（保留原样）
-{summaries['keep_original_summary'] or '无需特别保留的信息'}
+{summaries["keep_original_summary"] or "无需特别保留的信息"}
 
 **完整历史**: {history_file}
 
@@ -1201,13 +1247,7 @@ class AsyncReActLoop:
         messages.clear()
         messages.extend(compacted_messages)
 
-        print(f"✅ 智能上下文缩减完成：{len(messages)} 条消息")
-        print(
-            f"   Token数: {old_tokens} → {new_tokens} (减少 {old_tokens - new_tokens}, {(old_tokens - new_tokens) / old_tokens * 100:.1f}%)"
-        )
-        print(f"   保护前 {protect_first_rounds} 轮（任务规划）")
-        print(f"   保留最近 {keep_rounds} 轮对话")
-        print(f"   摘要了 {len(middle_messages)} 条中间消息")
+        print(f"✅ 智能上下文缩减完成：{len(messages)} 条消息 | Token: {old_tokens} → {new_tokens} (减少 {(old_tokens - new_tokens) / old_tokens * 100:.1f}%) | 保护前{protect_first_rounds}轮 | 保留最近{keep_rounds}轮 | 摘要{len(middle_messages)}条")
 
     async def _compact_file_contents(self, messages: List[Dict]) -> List[Dict]:
         """
@@ -1605,7 +1645,7 @@ class AsyncReActLoop:
         # 添加执行步骤
         summary_prompt += f"\n\n**执行步骤**（最近{len(recent_steps)}步）：\n"
         for i, step in enumerate(recent_steps):
-            summary_prompt += f"\n步骤{i+1}: {step.thought[:150]}..."
+            summary_prompt += f"\n步骤{i + 1}: {step.thought[:150]}..."
             if step.actions:
                 summary_prompt += (
                     f"\n  动作: {', '.join([a.action for a in step.actions])}"
@@ -1619,7 +1659,8 @@ class AsyncReActLoop:
         try:
             summary_messages = [{"role": "user", "content": summary_prompt}]
             summary_response = await asyncio.wait_for(
-                self.model_caller(summary_messages), timeout=30.0  # 30秒超时
+                self.model_caller(summary_messages),
+                timeout=30.0,  # 30秒超时
             )
 
             # 清理摘要（移除可能的markdown格式）
@@ -1699,7 +1740,8 @@ class AsyncReActLoop:
         try:
             summary_messages = [{"role": "user", "content": summary_prompt}]
             summary_response = await asyncio.wait_for(
-                self.model_caller(summary_messages), timeout=60.0  # 60秒超时
+                self.model_caller(summary_messages),
+                timeout=60.0,  # 60秒超时
             )
 
             # 解析JSON响应
@@ -1775,56 +1817,8 @@ class AsyncReActLoop:
         return None
 
     async def _update_todo_from_thought(self, thought: str, todo_manager) -> None:
-        """从思考中自动更新待办清单"""
-        try:
-            # 添加执行记录
-            await todo_manager.add_execution_record(f"思考: {thought[:300]}...")
-
-            # 检查是否完成事项
-            completion_keywords = [
-                "完成",
-                "finished",
-                "done",
-                "实现",
-                "创建",
-                "编写",
-                "添加",
-                "修复",
-                "解决",
-                "测试通过",
-                "验证",
-                "部署",
-            ]
-
-            thought_lower = thought.lower()
-            for keyword in completion_keywords:
-                if keyword in thought_lower:
-                    # 尝试标记相关待办事项为完成
-                    # 这里可以添加更智能的匹配逻辑
-                    pass
-
-            # 检查是否需要添加新事项
-            planning_keywords = [
-                "需要",
-                "下一步",
-                "接下来",
-                "计划",
-                "准备",
-                "将要",
-                "打算",
-                "考虑",
-                "建议",
-                "推荐",
-            ]
-
-            for keyword in planning_keywords:
-                if keyword in thought_lower:
-                    # 提取可能的任务描述
-                    # 这里可以添加更智能的提取逻辑
-                    pass
-
-        except Exception as e:
-            print(f"⚠️  更新待办清单失败: {e}")
+        """从思考中自动更新待办清单（已废弃，不再自动记录思考过程）"""
+        pass
 
     async def _update_todo_from_error(self, observation, todo_manager) -> None:
         """从错误观察中自动添加修复任务到待办清单 - 优化版：更精确的错误检测"""
@@ -2086,16 +2080,11 @@ class AsyncReActLoop:
         """
         # 1. 检查观察结果数量一致性
         if len(all_observations) != len(all_observations_for_display):
-            print(f"⚠️  上下文一致性警告：观察结果数量不匹配")
-            print(
-                f"   Agent观察数: {len(all_observations)}, 用户观察数: {len(all_observations_for_display)}"
-            )
+            print(f"⚠️  上下文一致性警告：观察结果数量不匹配 | Agent观察数: {len(all_observations)}, 用户观察数: {len(all_observations_for_display)}")
 
         # 2. 检查token使用情况
         current_tokens = self._estimate_tokens(messages)
         if current_tokens > 5000:  # 警告阈值
-            print(f"📊 上下文大小监控：当前约{current_tokens} tokens")
-
             # 显示消息分布
             system_tokens = self._estimate_tokens(
                 [msg for msg in messages if msg.get("role") == "system"]
@@ -2106,10 +2095,7 @@ class AsyncReActLoop:
             assistant_tokens = self._estimate_tokens(
                 [msg for msg in messages if msg.get("role") == "assistant"]
             )
-
-            print(f"   系统消息: {system_tokens} tokens")
-            print(f"   用户消息: {user_tokens} tokens")
-            print(f"   Assistant消息: {assistant_tokens} tokens")
+            print(f"📊 上下文大小监控：当前约{current_tokens} tokens | 系统: {system_tokens} | 用户: {user_tokens} | Assistant: {assistant_tokens}")
 
         # 3. 检查归档路径是否保留（简化版本中）
         for i, obs_display in enumerate(all_observations_for_display):
@@ -2127,10 +2113,10 @@ class AsyncReActLoop:
                     )
                     if archive_match:
                         archive_file = archive_match.group(1)
-                        print(f"✅ 归档路径一致性：动作{i+1}归档到 {archive_file}")
+                        print(f"✅ 归档路径一致性：动作{i + 1}归档到 {archive_file}")
                 else:
                     print(
-                        f"⚠️  归档路径不一致：动作{i+1}的简化版本包含归档路径，但完整版本可能丢失"
+                        f"⚠️  归档路径不一致：动作{i + 1}的简化版本包含归档路径，但完整版本可能丢失"
                     )
 
     def _estimate_tokens(self, messages: List[Dict]) -> int:

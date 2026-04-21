@@ -6,16 +6,23 @@
 """
 
 import asyncio
+import sys
 from pathlib import Path
 from typing import Dict, Any, List
+
+try:
+    from config import settings
+except ImportError:
+    from ..config import settings
 
 
 class ContextManager:
     """极简文件化上下文管理器"""
 
-    def __init__(self, project_path: Path):
-        self.project_path = project_path
-        self.context_dir = project_path / ".aacode" / "context"
+    def __init__(self, project_path):
+        from pathlib import Path
+        self.project_path = Path(project_path) if not isinstance(project_path, Path) else project_path
+        self.context_dir = self.project_path / ".aacode" / "context"
         self.context_dir.mkdir(parents=True, exist_ok=True)
         # 优化1：待办文件路径始终在上下文中
         self.current_todo_file = None  # 当前待办文件路径
@@ -53,9 +60,7 @@ class ContextManager:
                     "# 📋 项目初始化指令\n⚠️ init.md 文件不存在，建议创建"
                 )
         except Exception as e:
-            context_parts.append(
-                f"# 📋 项目初始化指令\n⚠️ 检查文件失败: {str(e)[:100]}"
-            )
+            context_parts.append(f"# 📋 项目初始化指令\n⚠️ 检查文件失败: {str(e)[:100]}")
 
         # 优化1：待办文件路径始终在上下文中
         if self.current_todo_file:
@@ -190,7 +195,10 @@ class ContextManager:
         # 6. 使用bash万能适配器获取项目结构 - 增强错误处理和超时保护
         try:
             # 使用配置的超时时间和文件数量限制
-            from config import settings
+            if __package__ in (None, ""):
+                from config import settings
+            else:
+                from ..config import settings
 
             file_search_timeout = settings.timeouts.file_search
             max_files = getattr(settings.limits, "max_context_files", 50)
@@ -241,7 +249,10 @@ class ContextManager:
         except FileNotFoundError:
             # find命令不可用，尝试使用Python实现
             try:
-                from config import settings
+                if __package__ in (None, ""):
+                    from config import settings
+                else:
+                    from ..config import settings
 
                 max_files = getattr(settings.limits, "max_context_files", 50)
                 prioritize = getattr(settings.limits, "prioritize_file_types", True)
@@ -450,20 +461,12 @@ class ContextManager:
                         )
             history_content += "\n"
 
-        process = await asyncio.create_subprocess_shell(
-            f"cat > {history_file}",
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=self.project_path,
-        )
-
-        stdout, stderr = await process.communicate(history_content.encode("utf-8"))
-
-        if process.returncode == 0:
+        # 跨平台写入文件（cat 是 Unix 命令，Windows 上不存在）
+        try:
+            history_file.write_text(history_content, encoding="utf-8")
             return str(history_file.relative_to(self.project_path))
-        else:
-            return f"保存失败: {stderr.decode()}"
+        except Exception as e:
+            return f"保存失败: {str(e)}"
 
     def _prioritize_files(self, file_list: List[str]) -> List[str]:
         """
