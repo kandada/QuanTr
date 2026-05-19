@@ -15,10 +15,18 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any, List
-from core.main_agent import MainAgent
-from utils.context_manager import ContextManager
-from utils.safety import SafetyGuard
-from config import settings
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from aacode.core.main_agent import MainAgent
+    from aacode.utils.context_manager import ContextManager
+    from aacode.utils.safety import SafetyGuard
+    from aacode.config import settings
+else:
+    from .core.main_agent import MainAgent
+    from .utils.context_manager import ContextManager
+    from .utils.safety import SafetyGuard
+    from .config import settings
 
 
 class QuanTrCoder:
@@ -74,7 +82,10 @@ class QuanTrCoder:
         # 所有工具都会使用target_project作为基准路径
 
         # 初始化核心组件（使用target_project作为安全护栏的基准）
-        self.safety_guard = SafetyGuard(self.target_project)
+        self.safety_guard = SafetyGuard(
+            self.target_project,
+            dangerous_command_action=settings.safety.dangerous_command_action,
+        )
         # 上下文管理器使用aacode工作目录（存放日志等）
         self.context_manager = ContextManager(self.project_path)
         # 主Agent使用目标项目目录（实际操作目录）
@@ -687,12 +698,11 @@ def generate_stock_analysis_task(rewrite=False):
 ## 产出要求
 1. 数据归档：原始数据存放到 `data_files/{current_date}/` 目录
 2. 分析报告：每只股票生成 `stock_<名称>_<代码>_analysis_{current_date}.md`
-3. 结构化JSON：**必须严格遵循** `analysis_results/templates/stocks_analysis_template.json` 的字段结构
+3. 分析汇总：**必须严格遵循** `analysis_results/templates/stocks_analysis_template.md` 的结构
 4. 回测报告（完成后）：生成 `backtest_result_for_analysis_in_{current_date}.md`
 
 ## 注意事项
-- JSON必须包含模板定义的所有字段，不能简化
-- 数值字段无数据用0填充，字符串用空字符串
+- 分析报告需包含模板定义的所有模块，不能简化
 - 参考programs/README.md反思优化程序
 - **没有准确数据就没有分析**，如果没获取到数据，需要想其他办法获取到数据
 
@@ -713,12 +723,11 @@ def generate_stock_analysis_task(rewrite=False):
 ## 产出要求
 1. 数据归档：原始数据存放到 `data_files/{current_date}/` 目录
 2. 分析报告：每只股票生成 `stock_<名称>_<代码>_analysis_{current_date}.md`
-3. 结构化JSON：**必须严格遵循** `analysis_results/templates/stocks_analysis_template.json` 的字段结构
+3. 分析汇总：**必须严格遵循** `analysis_results/templates/stocks_analysis_template.md` 的结构
 4. 回测报告（完成后）：生成 `backtest_result_for_analysis_in_{current_date}.md`
 
 ## 注意事项
-- JSON必须包含模板定义的所有字段，不能简化
-- 数值字段无数据用0填充，字符串用空字符串
+- 分析报告需包含模板定义的所有模块，不能简化
 - 参考programs/README.md反思优化程序
 - **没有准确数据就没有分析**，如果没获取到数据，需要想其他办法获取到数据
 
@@ -831,7 +840,7 @@ async def main():
     # 加载环境变量配置
     env_file = Path(".env")
     if env_file.exists():
-        with open(env_file, "r") as f:
+        with open(env_file, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line and "=" in line and not line.startswith("#"):
@@ -904,6 +913,18 @@ async def main():
         # 没有预置任务（使用了自定义参数但没有指定具体任务类型），使用用户输入
         task = user_task
         print(f"🎯 执行自定义任务: {task}")
+
+    # 追加通用提示（节省token）
+    task += """
+
+## 通用提示
+- **编辑文件时尽量增量更新**：只修改需要改的部分，不要重写整个文件，避免不必要的token消耗
+- **写大文件时不要用 echo**：对于内容较多的文件（如JSON、长脚本），优先用以下方式避免shell参数爆炸：
+  - 写一个Python脚本生成文件，然后运行它
+  - 用 `cat << 'EOF' > file` heredoc 语法写入
+  - 用 `python3 -c "..."` 内联写文件（适合中等长度）
+  - 拆分写入：先写小文件，再逐步追加
+"""
 
     # 运行任务
     try:
