@@ -73,12 +73,6 @@ QuanTr是一款基于AI Agent的股票量化分析与策略回测系统，本文
 
 #### 分析报告模板
 - **位置**: `analysis_results/templates/`
-- **文件**:
-  - `stocks_analysis_template.json` - JSON格式模板
-  - `stocks_analysis_template_with_comments.json` - 带注释模板
-  - `stocks_analysis_example.json` - 示例文件
-  - `stocks_analysis_example_with_comments.json` - 带注释示例
-  - `README.md` - 模板说明文档
 
 #### 程序模板
 - **位置**: `programs/` (可创建)
