@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # tools/web_tools.py
 """
 网络搜索工具实现
@@ -6,6 +8,8 @@
 
 import asyncio
 import aiohttp
+import uuid
+from pathlib import Path
 import json
 import sys
 from typing import Dict, List, Any, Optional
@@ -134,7 +138,7 @@ class WebTools:
         self,
         url: str,
         timeout: Optional[int] = None,
-        max_content_length: int = 100000,
+        max_content_length: int = 5000,
         **kwargs,
     ) -> Dict[str, Any]:
         """
@@ -190,7 +194,12 @@ class WebTools:
 
                 # 限制内容长度
                 if len(content) > max_content_length:
-                    content = content[:max_content_length] + "\n...[content truncated]"
+                    extracts = self.project_path / ".aacode" / "extracts"
+                    extracts.mkdir(parents=True, exist_ok=True)
+                    file_path = extracts / f"tool_content_{uuid.uuid4().hex[:8]}.txt"
+                    file_path.write_text(content, encoding="utf-8")
+                    suffix = f"\n\n[Full content saved to {file_path}. Use run_shell to Grep the file for what you need.]"
+                    content = content[:max_content_length] + suffix
 
                 return {
                     "success": True,

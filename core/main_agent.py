@@ -8,11 +8,14 @@ import asyncio
 import json
 import re
 import sys
+import uuid
 from aacode.i18n import t
+from aacode.utils.session_manager import SessionMessage
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 import os
+import ast
 import subprocess
 import openai
 import anthropic
@@ -182,9 +185,9 @@ class MainAgent(BaseAgent):
             context_config=settings.context,
         )
 
-    async def _finalize_task(self, summary: str, **kwargs) -> Dict[str, Any]:
-        """结束当前任务"""
-        return {"status": "completed", "summary": summary}
+    async def _finalize_task(self) -> Dict[str, Any]:
+        """结束当前任务。模型应在调用前在 assistant content 中写好总结。"""
+        return {"status": "completed"}
 
     # ------------------------------------------------------------------ #
     #  run_skills  —  统一技能入口，三种模式（仿 fastclaw）
@@ -236,15 +239,40 @@ class MainAgent(BaseAgent):
             return f"Error: Skill '{skill_name}' not enabled"
 
         func_name = params.pop("func", None)
+        # 注入项目路径，让 skill 函数用正确的工作目录解析相对路径
+        params.setdefault("_project_path", str(self.skills_manager.project_path.absolute()))
         try:
+
             result = await self.skills_manager.execute_skill(
                 sname, func_name=func_name, **params
             )
             if isinstance(result, dict):
                 if result.get("success"):
-                    return str(result.get("result", result))
-                return f"Error: {result.get('error', str(result))}"
-            return str(result)
+                    result_str = str(result.get("result", result))
+                else:
+                    result_str = f"Error: {result.get('error', str(result))}"
+            else:
+                result_str = str(result)
+
+            # 结果过大时截断并存入 .aacode/extracts/
+            max_chars = getattr(settings.limits, "skill_max_result_chars", 5000)
+            if len(result_str) > max_chars:
+                project_root = self.skills_manager.project_path.absolute()
+                extracts_dir = project_root / ".aacode" / "extracts"
+                extracts_dir.mkdir(parents=True, exist_ok=True)
+                file_path = extracts_dir / f"skill_result_{uuid.uuid4().hex[:8]}.txt"
+                file_path.write_text(result_str, encoding="utf-8")
+
+                preview = result_str[:2000]
+                result_str = (
+                    f"Result truncated ({len(result_str)} chars).\n"
+                    f"Full content saved to: {file_path}.\n"
+                    f"Use run_shell to Grep the file for what you need.\n"
+                    f"\n── Preview (2000 chars) ──\n{preview}"
+                )
+
+            return result_str
+
         except Exception as e:
             return f"Error executing skill '{skill_name}': {str(e)}"
 
@@ -320,7 +348,7 @@ class MainAgent(BaseAgent):
         for skill_name in enabled_list:
             self.skills_manager._load_full_instruction(skill_name)
 
-        print(t("skills.registered_tools", count=0))
+        print(t("skills.registered_tools", count=len(enabled_list)))
 
     def _create_model_caller(self, model_config: Dict):
         """创建模型调 with 器（支持流式输出、多网关、原生 Function Calling）"""
@@ -552,14 +580,16 @@ class MainAgent(BaseAgent):
             # 处理正常内容
             if delta.content is not None:
                 if thinking_printed:
-                    print("\nThought: ", end="", flush=True) if _is_tty else print("\nThought: ", flush=True)
                     thinking_printed = False
+                    # thinking 段完成，把累积的干净 reasoning 内容发往前端（在 "Thought:" 之前发出）
+                    if not _is_tty and thinking_content:
+                        import json as _json
+                        print(_json.dumps({"type": "seg_content", "seg": "thinking", "content": thinking_content}), flush=True)
+                    print("\nThought: ", end="", flush=True) if _is_tty else print("Thought: ", flush=True)
                 full_response += delta.content
                 _stream_print(delta.content)
-            # 处理 tool_calls (流式累积)
+            # 处理 tool_calls (流式累积，延迟打印以避免与 content token 交叉)
             if delta.tool_calls:
-                if not hasattr(self, '_tool_call_progress'):
-                    self._tool_call_progress: Dict[int, Dict] = {}
                 for tc_delta in delta.tool_calls:
                     idx = tc_delta.index
                     if idx not in tool_calls_accumulator:
@@ -570,29 +600,51 @@ class MainAgent(BaseAgent):
                         }
                     acc = tool_calls_accumulator[idx]
                     if idx not in self._tool_call_progress:
-                        self._tool_call_progress[idx] = {"name": "", "last_report": 0}
+                        self._tool_call_progress[idx] = {"name": "", "last_report": 0, "_name_printed": False}
                     progress = self._tool_call_progress[idx]
                     if tc_delta.id:
                         acc["id"] = tc_delta.id
                     if tc_delta.function:
                         if tc_delta.function.name:
                             acc["function_name"] += tc_delta.function.name
-                            if not progress.get("_name_printed"):
-                                progress["name"] += tc_delta.function.name
-                                fn = progress["name"]
-                                print(f"🛠️ Building tool call: {fn}(...)", flush=True)
+                            progress["name"] += tc_delta.function.name
+                            if not progress["_name_printed"]:
                                 progress["_name_printed"] = True
+                                if not _is_tty:
+                                    import json as _json
+                                    fn = progress["name"]
+                                    print(_json.dumps({"type": "tool_progress", "state": "building", "name": fn, "chars": 0}), flush=True)
                         if tc_delta.function.arguments:
                             chunk = tc_delta.function.arguments
                             acc["function_arguments"] += chunk
                             current_len = len(acc["function_arguments"])
                             if current_len - progress["last_report"] >= 500:
                                 fn = progress["name"] or "?"
-                                print(f"  ⏳ building args ({current_len} chars for {fn})", flush=True)
                                 progress["last_report"] = current_len - (current_len % 500)
+                                if not _is_tty:
+                                    import json as _json
+                                    print(_json.dumps({"type": "tool_progress", "state": "building", "name": fn, "chars": current_len}), flush=True)
 
         if _is_tty:
             print()  # CLI newline
+        elif full_response:
+            # thought 段完成，把累积的干净内容发往前端
+            # 剥离末尾的 action 声明行（仅匹配严格格式），避免与系统打印的 🛠️ Action: 重复
+            # 只匹配 "Action: <小写工具名>" + 可选 "Action Input: ..."，且必须出现在文本末尾
+            _clean = full_response
+            _m = re.search(
+                r'\n+Action:\s+[a-z][a-z0-9_-]*\s*(?:\nAction Input:\s*.*?)?\s*$',
+                _clean
+            )
+            if _m:
+                _clean = _clean[:_m.start()].strip()
+            _clean = re.sub(r'\n{3,}', '\n\n', _clean)
+            import json as _json
+            print(_json.dumps({"type": "seg_content", "seg": "thought", "content": _clean}), flush=True)
+        elif not _is_tty:
+            # 即使 full_response 为空也发 seg_content，让前端知道 thought 段已完成
+            import json as _json
+            print(_json.dumps({"type": "seg_content", "seg": "thought", "content": ""}), flush=True)
 
         # ─── 构建 tool_calls 列表 ───
         tool_calls_list = []
@@ -622,20 +674,28 @@ class MainAgent(BaseAgent):
             warning += "Reduce content per request or increase max_tokens in config.]"
             full_response += warning
 
-        # ─── thinking 内容拼接到返回值 ───
+        # ─── 工具调用信息输出（流结束后统一打印，避免与 content token 交叉导致 segment 错位） ──
+        if not _is_tty and tool_calls_list:
+            import json as _json
+            for tc in tool_calls_list:
+                name = tc["name"]
+                args = tc["arguments"]
+                # 发送 tool_progress done 事件，让前端清除进度指示器
+                print(_json.dumps({"type": "tool_progress", "state": "done", "name": name}), flush=True)
+                # 用 \x00 转义内嵌换行，保持单行输出 → Rust 还原为 \n → 前端收到完整单 segment
+                print(f"🛠️ Action: {name}\x00Action Input: {args}", flush=True)
+
+        # ─── thinking 内容与正文分离返回 ───
+        # reasoning_content 由独立的字段承载，不拼接到 content 中
+        # 这样 session JSON 中 content 保持干净，reasoning 在 reasoning_content 字段中
         if thinking_content:
             clean_response = full_response.lstrip('\n')
-            # 剥离模型 content 中可能自带的思考前缀（各模型表现不同）
             thinking_prefixes = [
-                r'^Thought[:\s\n]*', r'^💭\s*Thinking process[:\s\n]*',
-                r'^THINKING[:\s\n]*', r'^thinking[:\s\n]*', r'^reasoning[:\s\n]*',
+                r'^Thought[:\s\n]*', r'^THINKING[:\s\n]*', r'^thinking[:\s\n]*', r'^reasoning[:\s\n]*',
             ]
             for pat in thinking_prefixes:
                 clean_response = re.sub(pat, '', clean_response, flags=re.IGNORECASE).lstrip('\n')
-            if clean_response.strip():
-                full_response = f"💭 Thinking process:\n{thinking_content}\n\nThought: {clean_response}"
-            else:
-                full_response = f"💭 Thinking process:\n{thinking_content}"
+            full_response = clean_response
 
         return {
             "text": full_response if full_response is not None else "",
@@ -768,8 +828,12 @@ class MainAgent(BaseAgent):
                                     print("💭 Thinking process:", flush=True)
                                     thinking_printed = True
                             elif bt == 'text' and thinking_printed:
-                                print("\nThought: ", end="", flush=True) if _is_tty else print("\nThought: ", flush=True)
                                 thinking_printed = False
+                                # thinking 段完成（在 "Thought:" 之前发出）
+                                if not _is_tty and thinking_content:
+                                    import json as _json
+                                    print(_json.dumps({"type": "seg_content", "seg": "thinking", "content": thinking_content}), flush=True)
+                                print("\nThought: ", end="", flush=True) if _is_tty else print("Thought: ", flush=True)
                     elif event_type == 'content_block_delta':
                         delta = getattr(event, 'delta', None)
                         if delta:
@@ -780,6 +844,11 @@ class MainAgent(BaseAgent):
                             elif dt == 'text_delta':
                                 chunk = getattr(delta, 'text', '')
                                 if chunk: response += chunk; _stream_print(chunk)
+
+                # thought 段完成
+                if not _is_tty:
+                    import json as _json
+                    print(_json.dumps({"type": "seg_content", "seg": "thought", "content": response}), flush=True)
 
                 #  with  get_final_message Get 完整的 tool_use（非流式解析，可靠）
                 final = await stream.get_final_message()
@@ -837,18 +906,19 @@ class MainAgent(BaseAgent):
             except Exception:
                 pass
 
-        # thinking 拼接
+        # ─── thinking 内容与正文分离返回 ───
         if thinking_content:
             clean_resp = response.lstrip('\n')
             if clean_resp.startswith('Thought:'):
                 clean_resp = clean_resp[len('Thought:'):].lstrip()
-            if clean_resp.strip():
-                response = f"💭 Thinking process:\n{thinking_content}\n\nThought: {clean_resp}"
-            else:
-                response = f"💭 Thinking process:\n{thinking_content}"
+            response = clean_resp
 
         print()
-        return {"text": response, "tool_calls": tool_calls_list}
+        return {
+            "text": response,
+            "tool_calls": tool_calls_list,
+            "reasoning_content": thinking_content if thinking_content else None,
+        }
 
     def _create_tools(self, project_path: Path, safety_guard) -> Dict[str, Any]:
         """创建工具集并注册到工具注册表"""
@@ -865,7 +935,7 @@ class MainAgent(BaseAgent):
         async def wrapped_fetch_url(
             url: str,
             timeout: Optional[int] = None,
-            max_content_length: int = 100000,
+            max_content_length: int = 5000,
             **kwargs,
         ) -> Dict[str, Any]:
             # 调 with 原始fetch_url函数
@@ -997,6 +1067,57 @@ class MainAgent(BaseAgent):
 
         return tools
 
+    async def _save_iteration_messages(self, new_msgs):
+        """增量持久化：将 React 循环每轮新生成的消息立即保存到会话文件。
+
+        Args:
+            new_msgs: 本轮新生成的消息列表（dict 格式，含 assistant/tool 角色）
+        """
+        try:
+            for msg in new_msgs:
+                if msg["role"] not in ("assistant", "tool"):
+                    continue
+                content = msg.get("content", "")
+                reasoning_content = msg.get("reasoning_content")
+                tool_calls = msg.get("tool_calls")
+                sm = SessionMessage(
+                    role=msg["role"],
+                    content=content,
+                    timestamp=datetime.now().isoformat(timespec='seconds'),
+                    tokens=len(content) // 4,  # est tokens, session tracking only
+                    tool_calls=tool_calls,
+                    tool_call_id=msg.get("tool_call_id"),
+                    reasoning_content=reasoning_content,
+                )
+                self.session_manager.current_messages.append(sm)
+
+            # 更新会话摘要
+            if self.session_manager.current_session_id in self.session_manager.sessions_index:
+                summary = self.session_manager.sessions_index[self.session_manager.current_session_id]
+                summary.last_activity = datetime.now().isoformat(timespec='seconds')
+                summary.total_messages = len(self.session_manager.current_messages)
+                summary.total_tokens = self.session_manager._get_total_tokens()
+
+            await self.session_manager._save_session()
+            self.session_manager._save_sessions_index()
+            await self.session_manager._save_current_session_id()
+        except Exception as e:
+            print(t("error.save_session", e=str(e)))
+
+    async def _finalize_session_save(self):
+        """最终保存会话：更新元数据并写盘，用于执行结束或取消时调用。"""
+        session_summary = self.session_manager.sessions_index.get(
+            self.session_manager.current_session_id
+        )
+        if session_summary:
+            session_summary.last_activity = datetime.now().isoformat(timespec='seconds')
+            session_summary.total_messages = len(self.session_manager.current_messages)
+            session_summary.total_tokens = self.session_manager._get_total_tokens()
+
+        await self.session_manager._save_session()
+        self.session_manager._save_sessions_index()
+        await self.session_manager._save_current_session_id()
+
     async def execute(
         self,
         task: str,
@@ -1042,6 +1163,10 @@ class MainAgent(BaseAgent):
 
         full_system_prompt = f"{self.system_prompt}{analysis_section}\n\nProject init instructions:\n{init_instructions}"
         self.conversation_history[0]["content"] = full_system_prompt
+        # 同步完整的系统消息到 session_manager，确保 session JSON 记录完整
+        if self.session_manager.current_messages and self.session_manager.current_messages[0].role == "system":
+            self.session_manager.current_messages[0].content = full_system_prompt
+            self.session_manager.current_messages[0].tokens = self.session_manager._count_tokens(full_system_prompt)
 
         # 添加任务描述
         self.conversation_history.append(
@@ -1051,29 +1176,47 @@ class MainAgent(BaseAgent):
             }
         )
 
-        # ─── 加载同一会话的历史消息（多轮任务上下文衔接） ───
-        # 从 session_manager Get 当前会话的历史消息（不含 system 消息）
-        # 传给 react_loop.run，让模型在后续轮次中能看到之前的对话
-        # ⚠️ 这是多轮任务上下文衔接的关键，不要去掉
+        # ─── 先获取历史消息（不含本轮 user 消息，避免传给 LLM 造成重复） ──
         history_messages = await self.session_manager.get_messages(include_system=False)
-        # 过滤掉当前任务的消息（还没保存，避免重复）
-        # 历史消息是之前轮次保存的，当前任务的消息在 execute 结束后才保存
 
-        # 运 linesReAct循环
+        # ─── 再保存 user 任务消息（在 react_loop 之前，确保取消也不会丢失） ──
+        has_user_msg = (
+            len(self.session_manager.current_messages) > 0
+            and self.session_manager.current_messages[-1].role == "user"
+            and self.session_manager.current_messages[-1].content == task
+        )
+        if not has_user_msg:
+            await self.session_manager.add_message("user", task)
+
+        # ─── 运 linesReAct循环（增量持久化：每轮迭代立即保存消息） ──
+        _task_error = None
+        result = None
         try:
             result = await self.react_loop.run(
                 initial_prompt=full_system_prompt,
                 task_description=task,
                 todo_manager=todo_manager,
                 history_messages=history_messages if history_messages else None,
+                on_new_messages=self._save_iteration_messages,
             )
         except asyncio.CancelledError:
-            raise
+            _task_error = asyncio.CancelledError()
+            # 取消前先保存已增量持久化的消息（更新索引和时间戳）
+            try:
+                await self._finalize_session_save()
+            except Exception:
+                pass
+            try:
+                if hasattr(self, "web_tools"):
+                    await self.web_tools.cleanup()
+            except Exception as e:
+                print(t("agent.clean_web_tools", e=str(e)))
+            raise _task_error
         except Exception as e:
+            _task_error = e
             print(t("agent.react_loop_failed", e=str(e)))
             import traceback
             traceback.print_exc()
-            raise
         finally:
             try:
                 if hasattr(self, "web_tools"):
@@ -1081,68 +1224,41 @@ class MainAgent(BaseAgent):
             except Exception as e:
                 print(t("agent.clean_web_tools", e=str(e)))
 
-        # 把 react_loop 的对话历史保存到 session_manager
-        # ─── 保存会话历史 ───────────────────────────────────────────
-        # step.thought 的内容来自 _call_openai_api 的 full_response，格式为：
-        #   有 thinking 时: "💭 思考过程:\n{thinking内容}\n\nThought: {正式回复}"
-        #   无 thinking 时: "{正式回复}"（纯文本，可能有 Thought: 前缀也可能没有）
-        #
-        # ⚠️ 必须保留完整的 thinking 内容，不要清理掉：
-        #   1. 历史记录需要显示 thinking（前端 parseAssistantMessage 能正确解析）
-        #   2. thinking 内容在 react_loop 运 lines时上下文中也是完整的
-        #      （messages.append  with 的是原始 response，包含 thinking）
-        #   3. 去掉 thinking 会导致历史记录不完整， user看不到模型的推理过程
-        #
-        # ✅ 任务完成标记只存纯标记，不带内容（内容已在最后一个 step 中保存）
-        # ─────────────────────────────────────────────────────────────
+        # ─── React 循环已通过 on_new_messages 增量持久化 ─────────
+        # 这里只需添加 "✅ Task completed" 标记并更新会话元数据
         try:
-            # 先保存 user任务消息（如果还没有）
-            has_user_msg = any(
-                m.role == "user" and m.content == task
-                for m in self.session_manager.current_messages
-            )
-            if not has_user_msg:
-                await self.session_manager.add_message("user", task)
+            if not _task_error:
+                sm = SessionMessage(
+                    role="assistant",
+                    content="✅ Task completed",
+                    timestamp=datetime.now().isoformat(timespec='seconds'),
+                    tokens=self.session_manager._count_tokens("✅ Task completed"),
+                )
+                self.session_manager.current_messages.append(sm)
 
-            steps = self.react_loop.steps
-            for step in steps:
-                #  with  raw_response（完整模型响应，含 thinking）保存，而非 step.thought（只有 thought 部分）
-                # raw_response 格式：有 thinking 时 "💭 思考过程:\n{thinking}\n\nThought: {content}"
-                #                   无 thinking 时 "{content}"
-                thought_content = step.raw_response or step.thought
-                # 确保有可识别的前缀（前端 parseAssistantMessage 依赖前缀识别类型）
-                if not thought_content.startswith("Thought:") and not thought_content.startswith("💭 Thinking process"):
-                    thought_content = f"Thought: {thought_content}"
-                if step.actions:
-                    actions_parts = []
-                    for a in step.actions:
-                        part = f"Action: {a.action}"
-                        if a.action_input:
-                            import json as _json
-                            part += f"\nAction Input: {_json.dumps(a.action_input, ensure_ascii=False)[:500]}"
-                        if a.observation:
-                            part += f"\nObservation: {a.observation[:2000]}"
-                        actions_parts.append(part)
-                    thought_content = f"{thought_content}\n\n" + "\n\n".join(actions_parts)
-                await self.session_manager.add_message("assistant", thought_content)
-
-            # ⚠️ 只存纯标记，不要带 summary 内容，否则和最后一个 step 重复
-            await self.session_manager.add_message("assistant", "✅ Task completed")
-            await self.session_manager._save_session()
-            # 追加保存结构化消息（含 tool_calls / reasoning_content），  for多轮 API 上下文
-            if hasattr(self.react_loop, 'last_messages') and self.react_loop.last_messages:
-                await self.session_manager._save_structured_messages(self.react_loop.last_messages)
-            self.session_manager._save_sessions_index()
+            await self._finalize_session_save()
         except Exception as e:
             print(t("error.save_session", e=str(e)))
 
-        # 更新统计
+        # 更新统计（即使异常也有部分 steps）
         self.iterations = len(self.react_loop.steps)
 
         execution_time = 0.0
         if self.start_time is not None:
             execution_time = asyncio.get_event_loop().time() - self.start_time
 
+        # 非 CancelledError 的异常，保存后返回部分结果
+        if _task_error:
+            return {
+                "status": "error",
+                "error": str(_task_error),
+                "iterations": self.iterations,
+                "session_id": session_id,
+                "agent_stats": self.get_stats(),
+                "execution_time": execution_time,
+            }
+
+        # 正常返回
         return {
             **result,
             "session_id": session_id,

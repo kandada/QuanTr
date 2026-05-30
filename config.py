@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # 配置管理
 # config.py
 """
@@ -10,6 +12,7 @@ from typing import Dict, Any, Optional
 from dataclasses import dataclass, asdict, field
 from typing import Dict, Any, Optional, List
 import yaml
+import platformdirs
 from aacode.i18n import t
 
 
@@ -234,9 +237,7 @@ class MCPConfig:
     # 通 with 配置
     auto_connect: bool = True
     connection_timeout: int = 30
-    max_retries: int = 3
-
-
+    max_retries: int = 1  # 工具调用重试次数。设为1=不重试，失败由模型决策
 @dataclass
 class OutputConfig:
     """输出处理配置（自适应截断 — 基于剩余上下文预算）"""
@@ -250,6 +251,7 @@ class OutputConfig:
 class TimeoutConfig:
     """timeout配置"""
 
+    tool_default: int = 300  # 通用工具执行timeout（秒），防挂起兜底
     shell_command: int = 30  # Shell命令executetimeout（秒）
     model_summary: int = 30  # 模型摘要生成timeout（秒）
     file_search: int = 5  # 文件搜索timeout（秒）
@@ -264,7 +266,8 @@ class LimitsConfig:
 
     max_file_list_results: int = 100  # 文件列表最大结果数
     max_search_results: int = 20  # 搜索最大结果数
-    max_retries: int = 3  # 最大重试次数
+    max_retries: int = 1  # 工具调用重试次数。设为1=不重试，失败由模型自行决策
+    skill_max_result_chars: int = 5000  # skill 返回结果最大字符数，超过则截断并存入 .aacode/extracts/
     shell_output_preview: int = 200  # Shell输出预览长度（字符）
     max_auto_read_lines: int = 200  # 超过此 lines数时提供分段建议
     structure_preview_lines: int = 50  # 结构预览显示的 lines数
@@ -368,8 +371,10 @@ class Settings:
             if path.exists():
                 return path, "explicit"
 
+        config_dir = Path(platformdirs.user_config_dir("com.aacode", roaming=True))
         candidates = [
             (Path.cwd() / "aacode_config.yaml", "cwd"),
+            (config_dir / "aacode_config.yaml", "platformdirs"),
             (Path(__file__).parent / "aacode_config.yaml", "package"),
             (Path.home() / ".aacode" / "aacode_config.yaml", "home"),
         ]
@@ -382,6 +387,7 @@ class Settings:
 
     def __init__(self, config_file: Optional[str] = None):
         self.config_path, self.config_source = self._find_config_file(config_file)
+        self._explicit_config_file = config_file
 
         # 默认配置
         self.model = ModelConfig()
@@ -409,6 +415,19 @@ class Settings:
 
     def load_config(self):
         """从文件加载配置"""
+        if not self.config_path or not self.config_path.exists():
+            if self._explicit_config_file is None:
+                pkg_config = Path(__file__).parent / "aacode_config.yaml"
+                if pkg_config.exists():
+                    target_dir = Path(platformdirs.user_config_dir("com.aacode", roaming=True))
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    target_path = target_dir / "aacode_config.yaml"
+                    import shutil
+                    shutil.copy(pkg_config, target_path)
+                    self.config_path = target_path
+                    self.config_source = "platformdirs"
+                    print(f"Config saved to {target_path}")
+
         if self.config_path and self.config_path.exists():
             try:
                 with open(self.config_path, "r", encoding="utf-8") as f:
