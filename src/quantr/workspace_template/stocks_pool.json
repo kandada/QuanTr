@@ -1,0 +1,25 @@
+{
+  "version": "2.0",
+  "description": "QuanTr股票池",
+  "last_updated": "2026-02-01T16:30:00",
+  "stocks": [
+    {
+      "symbol": "000001.SZ",
+      "name": "平安银行",
+      "industry": "银行",
+      "tags": ["蓝筹股", "金融", "高股息"],
+      "resources": [
+        {
+          "type": "官网",
+          "url": "..."
+        }
+      ],
+      "files": [
+        {
+          "type": "上市公司年报",
+          "file_path": ""
+        }
+      ]
+    }
+  ]
+}

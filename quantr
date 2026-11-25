@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Repo-local shim: run the package from src/ (works before/without install).
+# After `pip install quantr`, the installed `quantr` console script is used instead.
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PY="${PYTHON:-python3}"
+command -v "$PY" >/dev/null 2>&1 || PY=python
+export PYTHONPATH="$DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+exec "$PY" -m quantr.cli "$@"

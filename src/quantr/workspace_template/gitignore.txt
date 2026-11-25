@@ -1,0 +1,11 @@
+# Data & outputs (never commit market data / reports)
+/store/
+/analysis_results/*/
+/backtest_reports/
+/data_files/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/

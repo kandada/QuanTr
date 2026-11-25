@@ -16,17 +16,114 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
-if __package__ in (None, ""):
-    sys.path.insert(0, str(Path(__file__).parent.parent))
-    from aacode.core.main_agent import MainAgent
-    from aacode.utils.context_manager import ContextManager
-    from aacode.utils.safety import SafetyGuard
-    from aacode.config import settings
-else:
-    from .core.main_agent import MainAgent
-    from .utils.context_manager import ContextManager
-    from .utils.safety import SafetyGuard
-    from .config import settings
+
+def _load_dotenv() -> None:
+    """Load ./.env into the environment before aacode settings are imported.
+
+    Real shell variables win over .env values (matching aacode's env_loader).
+    Loading first ensures env overrides like LLM_MODEL_NAME reach aacode config.
+    """
+    env_file = Path(__file__).resolve().parent / ".env"
+    if not env_file.exists():
+        return
+    try:
+        for raw in env_file.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip())
+    except Exception:
+        pass
+
+
+_load_dotenv()
+
+# QuanTr is a thin wrapper over aacode: import the framework from the aacode
+# package (recommended >=1.8.17). The sibling source checkout takes priority,
+# otherwise the installed distribution is used.
+_PROJECT_ROOT = Path(__file__).resolve().parent
+if str(_PROJECT_ROOT.parent) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT.parent))
+
+from aacode.core.main_agent import MainAgent
+from aacode.utils.context_manager import ContextManager
+from aacode.utils.safety import SafetyGuard
+from aacode.config import settings
+
+
+def _build_model_config() -> Dict[str, Any]:
+    """Resolve the model route via aacode settings, honoring env overrides.
+
+    aacode expects a profile dict keyed by "name"/"gateway"/"base_url"/etc.
+    (the legacy QuanTr dict used "model", which aacode 1.8.x does not read).
+    """
+    env_name = (os.environ.get("LLM_MODEL_NAME") or "").strip()
+    profile = dict(settings.get_model_profile(env_name or None))
+    if env_name:
+        profile["name"] = env_name
+    api_key = os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    if api_key:
+        profile["api_key"] = api_key
+    base_url = os.environ.get("LLM_API_URL") or os.environ.get("OPENAI_BASE_URL")
+    if base_url:
+        profile["base_url"] = base_url
+    if os.environ.get("LLM_GATEWAY"):
+        profile["gateway"] = os.environ["LLM_GATEWAY"]
+    profile.setdefault("temperature", 0.1)
+    profile.setdefault("max_tokens", 96000)
+    return profile
+
+
+def _make_event_logger(verbose: Optional[bool] = None):
+    """Build an aacode ``event_callback`` that logs concise progress lines.
+
+    Enabled by default so cron logs stay meaningful; set QUANTR_EVENT_LOG=0
+    to silence it.
+    """
+    if verbose is None:
+        verbose = os.environ.get("QUANTR_EVENT_LOG", "1").lower() not in (
+            "0",
+            "false",
+            "no",
+            "",
+        )
+    if not verbose:
+        return None
+
+    def _log(event: Dict[str, Any]) -> None:
+        try:
+            etype = event.get("type")
+            if etype == "task_start":
+                print("  ▶️  task started", flush=True)
+            elif etype == "tool_result":
+                tool = event.get("tool") or event.get("name") or "?"
+                print(f"  🔧 {tool}", flush=True)
+            elif etype == "compaction":
+                print("  🗜️  context compacted", flush=True)
+            elif etype == "tool_spill":
+                print(f"  💾 tool output spilled: {event.get('tool', '?')}", flush=True)
+            elif etype == "usage":
+                usage = event.get("usage") or event
+                pt = usage.get("prompt_total") or usage.get("prompt_tokens")
+                if pt is None:
+                    parts = [
+                        usage.get(k)
+                        for k in ("uncached_input", "cache_read", "cache_write")
+                    ]
+                    if any(p is not None for p in parts):
+                        pt = sum(v or 0 for v in parts)
+                ot = usage.get("output") or usage.get("completion_tokens")
+                cache = usage.get("cache_read")
+                if pt or ot:
+                    extra = f" (cache_read={cache})" if cache else ""
+                    print(f"  📊 tokens in/out: {pt}/{ot}{extra}", flush=True)
+            elif etype == "task_end":
+                print(f"  ⏹️  task ended ({event.get('status', '')})", flush=True)
+        except Exception:
+            pass
+
+    return _log
 
 
 class QuanTrCoder:
@@ -81,6 +178,9 @@ class QuanTrCoder:
         # 不使用chdir，避免路径混乱问题
         # 所有工具都会使用target_project作为基准路径
 
+        # 加载项目初始化指令（须在构造 MainAgent 前完成）
+        self._load_init_instructions()
+
         # 初始化核心组件（使用target_project作为安全护栏的基准）
         self.safety_guard = SafetyGuard(
             self.target_project,
@@ -89,15 +189,14 @@ class QuanTrCoder:
         # 上下文管理器使用aacode工作目录（存放日志等）
         self.context_manager = ContextManager(self.project_path)
         # 主Agent使用目标项目目录（实际操作目录）
+        # aacode 1.8.x：init_instructions 在构造时注入（execute 已不再接收）
         self.main_agent = MainAgent(
             project_path=self.target_project,
             context_manager=self.context_manager,
             safety_guard=self.safety_guard,
             model_config=model_config or settings.DEFAULT_MODEL,
+            init_instructions=self.init_instructions,
         )
-
-        # 加载项目初始化指令
-        self._load_init_instructions()
 
         # 初始化类方法映射器
         self._init_class_method_mapper()
@@ -217,8 +316,8 @@ class QuanTrCoder:
     def _init_class_method_mapper(self):
         """初始化类方法映射器"""
         try:
-            # 尝试使用增强版映射器（现在在class_method_mapper.py中）
-            from utils.class_method_mapper import EnhancedClassMethodMapper
+            # 统一从 aacode 包导入，避免本地旧副本造成版本混用
+            from aacode.utils.class_method_mapper import EnhancedClassMethodMapper
 
             self.class_method_mapper = EnhancedClassMethodMapper(self.target_project)
             print("✅ 增强版类方法映射器初始化成功（支持多语言）")
@@ -226,7 +325,7 @@ class QuanTrCoder:
             print(f"⚠️  无法导入增强版类方法映射器: {e}")
             try:
                 # 回退到基础版映射器
-                from utils.class_method_mapper import ClassMethodMapper
+                from aacode.utils.class_method_mapper import ClassMethodMapper
 
                 self.class_method_mapper = ClassMethodMapper(self.target_project)
                 print("✅ 基础版类方法映射器初始化成功（仅Python）")
@@ -235,7 +334,7 @@ class QuanTrCoder:
                 self.class_method_mapper = None
 
         # 初始化to-do-list管理器（使用aacode工作目录）
-        from utils.todo_manager import get_todo_manager
+        from aacode.utils.todo_manager import get_todo_manager
 
         self.todo_manager = get_todo_manager(self.project_path)
 
@@ -345,11 +444,18 @@ class QuanTrCoder:
         print(f"🎯 目标项目目录: {self.target_project}")
         print(f"📝 初始化指令已加载 ({len(self.init_instructions.split())} 字)")
 
-        # 任务开始前分析项目结构
+        # 任务开始前分析项目结构（aacode 1.8.x 不再支持 project_analysis 参数，
+        # 这里保留产物 project_structure.md，并在任务末尾给出引用提示）
         print("\n🔍 任务开始前分析项目结构...")
         analysis_result = self.analyze_project_structure()
-        if "失败" not in analysis_result:
+        analysis_ok = analysis_result and "失败" not in analysis_result and "failed" not in analysis_result.lower()
+        if analysis_ok:
             print("✅ 项目结构分析完成，类方法映射已生成")
+            task = (
+                f"{task}\n\n## 项目结构参考\n"
+                "已完成类/方法映射，详见目标项目的 `project_structure.md`；"
+                "需要定位代码时可用 run_shell 查看该文件。\n"
+            )
         else:
             print("⚠️  项目结构分析未完成，但任务将继续")
 
@@ -369,14 +475,15 @@ class QuanTrCoder:
         print(f"✅ 待办清单已创建: {todo_file}")
 
         try:
-            # 运行主Agent，传递类方法映射信息
+            # aacode 1.8.x execute 签名：
+            # execute(task, task_dir, max_iterations, todo_manager, event_callback)
+            # init_instructions 已在构造 MainAgent 时注入。
             result = await self.main_agent.execute(
                 task=task,
-                init_instructions=self.init_instructions,
                 task_dir=task_dir,
                 max_iterations=max_iterations,
-                project_analysis=analysis_result,
-                todo_manager=self.todo_manager,  # 传递todo管理器
+                todo_manager=self.todo_manager,
+                event_callback=_make_event_logger(),
             )
             return result
         except asyncio.CancelledError:
@@ -669,9 +776,51 @@ async def continue_session(coder, project_dir):
             print("   输入 'help' 查看帮助文档")
 
 
+def _market_dates() -> Dict[str, Any]:
+    """交易日相关日期（非交易日 as_of 取最近交易日）。"""
+    try:
+        from quan_tr.programs.utils.market_clock import describe
+
+        return describe()
+    except Exception:
+        from datetime import date
+
+        today = date.today()
+        return {
+            "today": today.isoformat(),
+            "is_trading_day": today.weekday() < 5,
+            "as_of": today.isoformat(),
+        }
+
+
+_COMMON_GUARDRAILS = """
+## 数据完整性（强制，违反即失败）
+- 只允许用**真实获取**的数据做分析；**禁止**用随机/模拟/伪造数据冒充真实行情。
+- 数据写入 `data_files/<日期>/<数据源>/`，并用 `quantr.data_provenance` 标注来源与 `is_simulated`。
+- 结束前调用 `write_manifest("<日期>")` 生成 `manifest.json`。
+- 汇总 JSON 的 `data_quality.status` 如实填写 real/partial/simulated/missing 与 `as_of`。
+- `status != real` 时**禁止** buy/strong_buy，回测须标注“样本不足，仅供参考”。
+
+## 程序复用（强制）
+- 不要新建按日期命名的一次性脚本；优先参数化复用 `programs/` 下现有程序（日期/股票/周期走参数）。
+- 有意义的改动在 `programs/README.md` 追加一条简短变更记录。
+
+## 完成前自检（强制）
+- 运行 `quantr validate --date {date} --strict`，修复所有错误后才算完成。
+- 长任务用 run_shell 后台（background=true / action=spawn），用 check/read/jobs 查看进度，不要 sleep 空等。
+"""
+
+
 def generate_stock_analysis_task(rewrite=False):
     """生成股票分析任务描述"""
-    current_date = datetime.now().strftime("%Y-%m-%d")
+    dates = _market_dates()
+    current_date = dates["today"]
+    as_of = dates["as_of"]
+    trading_note = (
+        ""
+        if dates["is_trading_day"]
+        else f"\n- 注意：{current_date} 非交易日，行情数据截止最近交易日 {as_of}"
+    )
 
     # 检查现有分析结果
     from pathlib import Path
@@ -679,57 +828,47 @@ def generate_stock_analysis_task(rewrite=False):
     analysis_dir = Path("quan_tr") / "analysis_results" / current_date
     existing_analysis = analysis_dir.exists() and any(analysis_dir.glob("*.json"))
 
+    template_json = "analysis_results/templates/stocks_analysis_template.json"
+    template_md = "analysis_results/templates/stocks_analysis_template.md"
+    guard = _COMMON_GUARDRAILS.format(date=current_date)
+
     if rewrite or not existing_analysis:
         task_type = "重新分析" if rewrite else "执行"
+        mode = "覆盖已有分析" if rewrite else "增量分析（跳过已完成的股票）"
         skip_note = (
-            "" if rewrite else "（如果程序缺失或有问题，请先开发或优化相应程序）"
+            "" if rewrite else "（如程序缺失或有缺陷，先优化/参数化改造现有程序再运行）"
         )
 
         return f"""
-执行股票分析任务：{task_type}{current_date}的股票池
+执行股票分析任务：{task_type} {current_date} 的股票池（数据 as_of: {as_of}）
 
 ## 任务说明
-请参考 init.md 了解详细的工作流程、分析维度和产出格式要求。
-
-## 关键提示
-**程序请写在 programs/ 目录下**，包括数据获取程序、分析程序、回测程序等。
-优先使用现有程序{skip_note}。
+严格参考 init.md 的工作流程、分析维度与产出格式。优先复用并参数化 programs/ 下程序{skip_note}。
 
 ## 产出要求
-1. 数据归档：原始数据存放到 `data_files/{current_date}/` 目录
-2. 分析报告：每只股票生成 `stock_<名称>_<代码>_analysis_{current_date}.md`
-3. 分析汇总：**必须严格遵循** `analysis_results/templates/stocks_analysis_template.md` 的结构
-4. 回测报告（完成后）：生成 `backtest_result_for_analysis_in_{current_date}.md`
+1. 数据归档：`data_files/{current_date}/`，并生成 `manifest.json`
+2. 单股报告：`stock_<名称>_<代码>_analysis_{current_date}.md`（结构见 `{template_md}`）
+3. 汇总 JSON：`stocks_analysis_{current_date}.json`（**严格遵循** `{template_json}`，含 `data_quality`）
+4. 回测（可选）：`backtest_result_for_analysis_in_{current_date}.md`
 
-## 注意事项
-- 分析报告需包含模板定义的所有模块，不能简化
-- 参考programs/README.md反思优化程序
-- **没有准确数据就没有分析**，如果没获取到数据，需要想其他办法获取到数据
+{guard}{trading_note}
 
-**任务状态**: {"覆盖已有分析" if rewrite else "增量分析（跳过已完成的股票）"}
+**任务状态**: {mode}
 """
     else:
         # 增量分析模式
         return f"""
-执行股票分析任务：增量分析{current_date}的股票池
+执行股票分析任务：增量分析 {current_date} 的股票池（数据 as_of: {as_of}）
 
 ## 任务说明
-对今日尚未分析的股票进行补充分析，确保股票池中的所有股票都有今日的分析报告。
-注意需参考 init.md 了解详细的工作流程、分析维度和产出格式要求。
-
-## 关键提示
-**程序请写在 programs/ 目录下**。
+对今日尚未分析的股票补充分析，确保股票池每只股票都有今日报告。严格参考 init.md。
 
 ## 产出要求
-1. 数据归档：原始数据存放到 `data_files/{current_date}/` 目录
-2. 分析报告：每只股票生成 `stock_<名称>_<代码>_analysis_{current_date}.md`
-3. 分析汇总：**必须严格遵循** `analysis_results/templates/stocks_analysis_template.md` 的结构
-4. 回测报告（完成后）：生成 `backtest_result_for_analysis_in_{current_date}.md`
+1. 数据归档：`data_files/{current_date}/`，并生成 `manifest.json`
+2. 单股报告：`stock_<名称>_<代码>_analysis_{current_date}.md`（结构见 `{template_md}`）
+3. 汇总 JSON：`stocks_analysis_{current_date}.json`（**严格遵循** `{template_json}`，含 `data_quality`）
 
-## 注意事项
-- 分析报告需包含模板定义的所有模块，不能简化
-- 参考programs/README.md反思优化程序
-- **没有准确数据就没有分析**，如果没获取到数据，需要想其他办法获取到数据
+{guard}{trading_note}
 
 **任务状态**: 增量分析（跳过已完成的股票）
 """
@@ -737,7 +876,9 @@ def generate_stock_analysis_task(rewrite=False):
 
 def generate_backtest_task(period="weekly"):
     """生成策略回测任务描述"""
-    current_date = datetime.now().strftime("%Y-%m-%d")
+    dates = _market_dates()
+    current_date = dates["today"]
+    as_of = dates["as_of"]
 
     if period == "weekly":
         days = 7
@@ -746,23 +887,23 @@ def generate_backtest_task(period="weekly"):
         days = 30
         period_desc = "近一个月"
 
-    return f"""
-执行策略回测任务：对{period_desc}的分析策略进行回测验证
+    backtest_guard = _COMMON_GUARDRAILS.format(date=current_date)
 
-## 关键提示
-**程序请写在 programs/ 目录下**。优先使用现有回测程序，如有问题请优化。
+    return f"""
+执行策略回测任务：对{period_desc}的分析策略进行回测验证（{current_date}，数据 as_of: {as_of}）
 
 ## 任务要求
-1. 收集最近{days}天的分析结果（JSON）和历史价格数据
-2. 基于买入卖出建议定义交易策略，进行回测
-3. 计算收益率、夏普比率、最大回撤、胜率等指标
-4. 生成回测报告：`backtest_reports/backtest_result_for_analysis_in_{current_date}.md`
-5. **没有准确数据就没有分析**，如果没获取到数据，需要想其他办法获取到数据
+1. 收集最近 {days} 天的历史分析 JSON 与对应**真实历史价格**（缺真实价格则不得回测，或明确标注“样本不足/仅演示”）
+2. 依据历史建议生成信号并模拟成交，计入佣金/滑点/仓位/止损止盈（取 `config.yaml` 的 `backtest.*`）
+3. 计算：累计收益、年化、最大回撤、夏普、胜率、盈亏比、交易次数、平均持仓天数
+4. 生成报告：`backtest_reports/backtest_result_for_analysis_in_{current_date}.md`
+5. **没有准确数据就没有分析**；换数据源，不要造数
 
-## 产出要求
-- 回测报告（包含绩效指标、交易记录、优化建议）
-- 程序优化记录（如有）
-- 参考 init.md 相关指引
+## 报告必须写明
+- 样本量、数据来源、数据质量（real/partial/simulated/missing）
+- 若数据不足或含模拟，明确标注“样本不足，结论仅供参考”，不得给出确定性盈利结论
+
+{backtest_guard}
 
 注意：回测结果仅供参考，不构成投资建议。
 """
@@ -837,15 +978,7 @@ async def main():
 
     args = parser.parse_args()
 
-    # 加载环境变量配置
-    env_file = Path(".env")
-    if env_file.exists():
-        with open(env_file, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and "=" in line and not line.startswith("#"):
-                    key, value = line.split("=", 1)
-                    os.environ[key.strip()] = value.strip()
+    # .env 已在模块导入前加载（见 _load_dotenv），这里无需重复处理。
 
     # 解析任务和目标项目
     # 如果第一个参数是路径（存在的目录），则作为目标项目
@@ -867,13 +1000,13 @@ async def main():
         user_task = input("请输入任务（可选，直接回车使用默认任务）: ").strip()
 
     # 创建QuanTr编码助手实例
-    # 从环境变量读取模型配置
-    model_config = {
-        "api_key": os.environ.get("LLM_API_KEY", ""),
-        "base_url": os.environ.get("LLM_API_URL", "https://api.deepseek.com/v1"),
-        "model": os.environ.get("LLM_MODEL_NAME", "deepseek-chat"),
-        "searchxng_url": os.environ.get("SEARCHXNG_URL", ""),
-    }
+    # 通过 aacode 的模型配置解析（支持 models 表 / 定价 / 上下文窗口），环境变量优先
+    model_config = _build_model_config()
+    print(
+        f"🤖 模型: {model_config.get('name')} "
+        f"(gateway={model_config.get('gateway')}, "
+        f"context_window={model_config.get('context_window', 'n/a')})"
+    )
     coder = QuanTrCoder(
         args.project, model_config=model_config, target_project=target_project
     )
@@ -924,6 +1057,9 @@ async def main():
   - 用 `cat << 'EOF' > file` heredoc 语法写入
   - 用 `python3 -c "..."` 内联写文件（适合中等长度）
   - 拆分写入：先写小文件，再逐步追加
+- **长任务（数据抓取/回测/安装依赖）**：用 run_shell 的 `background=true`（或 `action="spawn"`）后台运行，
+  之后用 `action="check" / "read" / "jobs"` 查看进度，不要用 sleep 空等；需要交互的 CLI 可加 `use_pty=true`
+- **上下文很长时**：历史消息可能被裁剪，可用 history 工具（search_history / read_history）检索旧内容，不要 `cat` 大型 session JSON
 """
 
     # 运行任务

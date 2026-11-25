@@ -1,0 +1,6 @@
+include LICENSE
+include README.md
+recursive-include src/quantr/templates *
+recursive-include src/quantr/skill *
+recursive-include src/quantr/workspace_template *
+global-exclude __pycache__ *.py[cod] .DS_Store

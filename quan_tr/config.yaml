@@ -101,10 +101,27 @@ analysis:
     current_ratio_threshold: 1.5  # 流动比率最低要求
 
 
+# 回测参数
+backtest:
+  initial_capital: 100000
+  commission_rate: 0.0003     # 佣金（单边）
+  slippage_rate: 0.0001       # 滑点（单边）
+  stamp_duty_rate: 0.0005     # 印花税（卖出，A股）
+  max_position_ratio: 0.8     # 最大仓位
+  stop_loss_rate: 0.1
+  take_profit_rate: 0.2
+  benchmark_symbol: "000300.SH"  # 基准：沪深300
+  backtest_periods:
+    weekly: 7
+    monthly: 30
+  walk_forward:
+    train_days: 250
+    test_days: 60
+
 # 版本信息
 version:
-  major: 1
+  major: 2
   minor: 0
   patch: 0
-  build_date: "2026-02-13"
-  compatible_with: "Python 3.8+"
+  build_date: "2026-11-24"
+  compatible_with: "Python 3.10+"

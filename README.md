@@ -1,5 +1,27 @@
 # QuanTr - 基于AI Agent的股票量化分析与策略回测系统
 
+## 安装与快速开始 (PyPI)
+
+```bash
+pip install quantr-engine          # 确定性引擎 + CLI
+pip install "quantr-engine[agent,mcp]"   # 可选：aacode 自主分析 + MCP server
+```
+
+```bash
+quantr init my-research && cd my-research
+quantr fetch --symbols 000001.SZ --source auto --save --json
+quantr factors --symbol 000001.SZ --json
+quantr pipeline --symbols 000001.SZ --date 2026-11-24 --json
+quantr validate --date 2026-11-24 --strict --json
+```
+
+- MCP：`python -m quantr.mcp_server`（工具见 `--list`）
+- 库：`from quantr.api import Quantr`
+- Skill：`quantr skill install`
+- 数据只落在本地 `store/`（Parquet + DuckDB），**发布包内不含任何行情数据**。
+
+> 开发/发布：`pip install -e ".[dev]"`，`python -m build`，`twine upload dist/*`。
+
 ## 概述
 
 QuanTr是一款基于aacode的股票分析和策略回测AI Agent系统，通过编程方式实现量化交易分析。系统利用AI Agent的自主编程能力，完成股票数据分析、策略生成和回测验证等任务。
@@ -18,8 +40,8 @@ QuanTr是一款基于aacode的股票分析和策略回测AI Agent系统，通过
 
 ```
 QuanTr/
-├── core/                           # aacode核心代码
-├── tools/                          # aacode工具模块
+├── (aacode 包)                      # 框架从已安装/同级 aacode>=1.8.17 导入
+├── _legacy_vendored_1.7.7/         # 历史内嵌的 aacode 1.7.7 副本（仅存档，不再使用）
 ├── quan_tr/                        # 量化交易工作目录
 │   ├── analysis_results/           # 分析结果（按日期组织）
 │   ├── backtest_reports/           # 回测报告
@@ -33,6 +55,29 @@ QuanTr/
 ├── README.md                       # 本项目文档
 └── README_aacode.md                # aacode原文档
 ```
+
+## 架构说明（aacode >= 1.8.17 薄封装）
+
+QuanTr 不再内嵌框架代码，而是作为 **aacode 的薄封装**运行：
+
+- 框架（`MainAgent` / `ContextManager` / `SafetyGuard` / 工具 / 上下文策略）统一从 `aacode` 包导入，要求 `aacode>=1.8.17`。
+- 项目特有的量化逻辑只保留在 `main_quan_tr.py` 与 `quan_tr/`（含 `init.md`、`programs/` 等）。
+- 旧的 1.7.7 内嵌副本已移动到 `_legacy_vendored_1.7.7/`，仅供对照，不再参与运行。
+- 量化指令 `quan_tr/init.md` 会在构造 `MainAgent` 时自动注入系统提示。
+- 长任务（数据抓取/回测）使用 `run_shell` 的后台任务能力；会话很长时可通过 history 工具检索被裁剪的历史。
+
+安装依赖：`pip install -r requirements.txt`（会拉取 `aacode>=1.8.17`）。
+
+**对外接口（同一套确定性引擎，多种封装）**
+- CLI：`./quantr --help`（`fetch/store/indicators/factors/backtest/validate/pipeline/skill`，统一 JSON 输出）
+- MCP：`python -m quantr.mcp_server`（stdio，工具名见 `--list`）
+- Library：`from api import Quantr` / `from service import factors, backtest, pipeline`
+- Skill：`./quantr skill install`，之后 agent 可通过 `run_skills("quan_tr", ...)` 调用
+
+**数据契约 v2**：`quan_tr/analysis_results/templates/stocks_analysis.schema.json`（JSON Schema 2020-12）
+是唯一契约源；`stocks_analysis.example.json` 为真实取值示例。`validate --strict` 会做 schema + 跨字段一致性 + 数据真实性门禁（报告自称 `real` 无法绕过审计）。旧 v1 报告可用 `--allow-v1` 兼容校验。
+
+**数据与组合**：本地 PIT 数据仓（Parquet + DuckDB，OHLCV 多版本 `ingest_time`、财报 `report_date/announce_date`）；PIT 成分股（`store/universe/`）；pipeline 输出横截面 `ranking` 与 `portfolio`（选股/权重/现金），并自动接入真实 `benchmark`（A股 000300.SH / 美股 SPY，离线缺失则跳过）。契约版本 2.1.0。
 
 ## 工作流程
 

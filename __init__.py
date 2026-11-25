@@ -1,8 +1,11 @@
 """
-aacode - AI Coding Assistant based on ReAct architecture
+QuanTr - quantitative analysis wrapper over aacode (>=1.8.17).
+
+The agent framework itself (core/tools/utils) lives in the installed aacode
+package; this project only adds the quant workflow and entry points.
 """
 
-__version__ = "1.7.7"
+__version__ = "2.0.0"
 __author__ = "xiefujin"
 
 # 修复：无论 __package__ 是否为空，都要确保包可以被导入

@@ -1,141 +1,217 @@
-# aacode configuration
-language: en    # en / zh
-
-context:
-  compact_threshold: 32000
-  history_compression: true
-  max_context_length: 131072
-  strategy: file_based
-  use_vector_store: false
-  # 上下文缩减（卸载）配置
-  compact_trigger_tokens: 256000      # 触发缩减的token数阈值
-  compact_keep_messages: 50          # 缩减后保留的消息数
-  compact_keep_rounds: 10            # 缩减后保留的对话轮数（最近N轮）
-  compact_summary_steps: 10         # 摘要包含的步骤数
-  compact_protect_first_rounds: 3   # 保护前N轮（任务规划、初始理解）
-
-# 输出处理配置（自适应截断 — 基于剩余上下文预算）
-output:
-  budget_ratio: 0.6            # 工具输出最多占用剩余预算的比例
-  max_preview_tokens: 2000     # 预览最多 token 数
-  display_preview_chars: 3000  # 用户终端显示预览字符数
-
-# 超时配置
-timeouts:
-  shell_command: 30         # Shell命令执行超时（秒）
-  model_summary: 60         # 模型摘要生成超时（秒）
-  file_search: 20            # 文件搜索超时（秒）
-  code_execution: 60        # 代码执行超时（秒）
-  sandbox_command: 120      # 沙箱命令超时（秒）
-  web_request: 60           # 网络请求超时（秒）
-
-# 限制配置
-limits:
-  max_file_list_results: 100    # 文件列表最大结果数
-  max_search_results: 10        # 搜索最大结果数
-  max_retries: 1                # 最大重试次数（设为1=不重试）
-  shell_output_preview: 200     # Shell输出预览长度（字符）
-  
-  # 文件读取智能提示配置
-  max_auto_read_lines: 200      # 超过此行数时提供分段建议
-  structure_preview_lines: 50   # 结构预览显示的行数
-  
-  # 上下文文件结构配置
-  max_context_files: 50         # 上下文中显示的最大文件数（从30增加到50）
-  prioritize_file_types: true   # 是否优先显示重要文件类型
-
-model:
-  temperature: 0.7
-  max_tokens: 96000   # 单次输出tokens长度
-  default_model: deepseek    # 默认使用的模型 key
-  models:
-    deepseek:
-      name: deepseek-v4-flash
-      gateway: openai
-      base_url: https://api.deepseek.com/v1
-      api_key: ""   # 从环境变量 LLM_API_KEY 或 OPENAI_API_KEY 读取
-    moonshot_kimi_k2.5:
-      name: kimi-k2.5
-      gateway: openai
-      base_url: https://api.moonshot.cn/v1
-      api_key: ""
-    minimax_m2.5:
-      name: MiniMax-M2.5
-      gateway: anthropic
-      base_url: https://api.minimax.chat/anthropic
-      api_key: ""
-
-# 多模态模型配置（支持扩展多个多模态模型）
-multimodal:
-  # 是否启用多模态功能
-  enabled: true
-  
-  # 默认使用的多模态模型
-  default_model: moonshot_kimi_k2.5
-  
-  # 多模态模型列表（可扩展）
-  models:
-    # Kimi K2.5 多模态模型
-    moonshot_kimi_k2.5:
-      name: kimi-k2.5
-      provider: moonshot
-      gateway: openai
-      base_url: "https://api.moonshot.cn/v1"  # 默认从环境变量 MULTIMODAL_API_URL 读取，默认 https://api.moonshot.cn/v1
-      api_key: ""  # 默认从环境变量 MULTIMODAL_API_KEY 读取
-      vision: true
-      video: true
-      max_image_size: 10485760  # 10MB
-      max_video_size: 104857600  # 100MB
-      supported_formats:
-        images: [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"]
-        videos: [".mp4", ".avi", ".mov", ".mkv", ".webm"]
-    
-    # MiniMax M2.5 多模态模型
-    minimax_m2.5:
-      name: MiniMax-M2.5
-      provider: minimax
-      gateway: anthropic
-      base_url: "https://api.minimax.chat/v1"  # 从环境变量 默认MULTIMODAL_API_URL 读取，默认 https://api.minimax.chat/v1
-      api_key: ""  # 默认从环境变量 MULTIMODAL_API_KEY 或 LLM_API_KEY 读取
-      vision: true
-      video: true
-      max_image_size: 10485760  # 10MB
-      max_video_size: 104857600  # 100MB
-      supported_formats:
-        images: [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"]
-        videos: [".mp4", ".avi", ".mov", ".mkv", ".webm"]
-    
-    # 后续可扩展的模型（预留）
-    # qwen_vl:
-    #   name: qwen-vl-max
-    #   provider: alibaba
-    #   gateway: openai
-    #   base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-    #   api_key: your_api_key
-    #   vision: true
-    #   video: false
-    
-    # glm:
-    #   name: glm-4v-plus
-    #   provider: zhipu
-    #   gateway: openai
-    #   base_url: https://open.bigmodel.cn/api/paas/v4
-    #   api_key: your_api_key
-    #   vision: true
-    #   video: false
 agent:
-  max_react_iterations: 300
-  max_sub_agent_iterations: 100
   enable_auto_planning: true
   enable_todo_tracking: true
+  max_react_iterations: 300
+  max_sub_agent_concurrency: 3
+  max_sub_agent_depth: 2
+  max_sub_agent_iterations: 100
+  subagent_input_token_budget: 400000
+  subagent_model: ''
+  subagent_output_token_budget: 60000
+  subagent_timeout_seconds: 600
+context:
+  compact_keep_messages: 50
+  compact_keep_rounds: 10
+  compact_protect_first_rounds: 3
+  compact_protect_user_rounds: 2
+  compact_summary_steps: 10
+  compact_threshold: 32000
+  compact_trigger_tokens: 256000
+  headroom_tokens: 65536
+  history_compression: true
+  inline_head_chars: 8000
+  inline_tail_chars: 4000
+  inline_tool_tokens: 6000
+  max_context_length: 1000000
+  overflow_retries: 1
+  prune_enabled: true
+  prune_head_chars: 4096
+  prune_min_rounds: 4
+  prune_tail_chars: 1024
+  prune_threshold_chars: 8192
+  read_cache_enabled: true
+  repeat_tool_enabled: true
+  repeat_tool_thresholds:
+  - 3
+  - 5
+  - 8
+  retain_ratio: 0.16
+  retrieval_keep_min_rounds: 4
+  retrieval_keep_recent_user_messages: 2
+  retrieval_keep_tokens: 0
+  retrieval_trigger_tokens: 0
+  strategy: file_based
+  summary_max_tokens: 2000
+  summary_min_shadow_tokens: 30000
+  summary_mode: adaptive
+  summary_model: ''
+  summary_provider: ''
+  task_input_token_budget: 0
+  task_output_token_budget: 0
+  use_vector_store: false
+  window_ratio: 0.8
+language: en
+# 隐式 diff 钩子：run_shell 执行后自动检测文件变更并回传 diff，
+# 便于模型在迭代开发 programs/ 下量化程序时及时看到改动效果。
+diff_hook:
+  enabled: true
+  small_change_threshold: 10
+  max_tracked_files: 50
+  max_diff_lines: 60
+  max_total_changes_lines: 200
+limits:
+  max_auto_read_lines: 200
+  max_context_files: 50
+  max_file_list_results: 100
+  max_retries: 1
+  max_search_results: 10
+  prioritize_file_types: true
+  shell_output_preview: 200
+  structure_preview_lines: 50
+mcp:
+  auto_connect: true
+  connection_timeout: 30
+  enabled: true
+  max_retries: 1
+  sse_servers:
+  - enabled: false
+    name: filesystem
+    retry_count: 3
+    timeout: 30
+    url: http://localhost:3001
+  - enabled: false
+    name: database
+    retry_count: 3
+    timeout: 30
+    url: http://localhost:3002
+  - enabled: false
+    name: web_search
+    retry_count: 3
+    timeout: 30
+    url: http://localhost:3003
+  std_servers:
+  - args:
+    - -c
+    - print('MCP server placeholder')
+    command: python3
+    enabled: false
+    name: local_tools
+    retry_count: 3
+    timeout: 30
+model:
+  default_model: deepseek
+  max_tokens: 96000
+  models:
+    deepseek:
+      api_key: ''
+      base_url: https://api.deepseek.com/v1
+      context_window: 1000000
+      gateway: openai
+      max_output_tokens: 64000
+      name: deepseek-v4-flash
+      # 可选：按百万 token 计价，用于 usage 成本估算（示例值，可按实际调整）
+      pricing:
+        input: 2.0
+        cache_read: 0.2
+        output: 8.0
+    minimax_m2.5:
+      api_key: ''
+      base_url: https://api.minimax.chat/anthropic
+      context_window: 200000
+      gateway: anthropic
+      max_output_tokens: 32000
+      name: MiniMax-M2.5
+    moonshot_kimi_k2.5:
+      api_key: ''
+      base_url: https://api.moonshot.cn/v1
+      context_window: 256000
+      gateway: openai
+      max_output_tokens: 32000
+      name: kimi-k2.5
+  temperature: 0.7
+multimodal:
+  default_model: moonshot_kimi_k2.5
+  enabled: true
+  models:
+    minimax_m2.5:
+      api_key: ''
+      base_url: https://api.minimax.chat/v1
+      gateway: anthropic
+      max_image_size: 10485760
+      max_video_size: 104857600
+      name: MiniMax-M2.5
+      provider: minimax
+      supported_formats:
+        images:
+        - .jpg
+        - .jpeg
+        - .png
+        - .gif
+        - .webp
+        - .bmp
+        videos:
+        - .mp4
+        - .avi
+        - .mov
+        - .mkv
+        - .webm
+      video: true
+      vision: true
+    moonshot_kimi_k2.5:
+      api_key: ''
+      base_url: https://api.moonshot.cn/v1
+      gateway: openai
+      max_image_size: 10485760
+      max_video_size: 104857600
+      name: kimi-k2.5
+      provider: moonshot
+      supported_formats:
+        images:
+        - .jpg
+        - .jpeg
+        - .png
+        - .gif
+        - .webp
+        - .bmp
+        videos:
+        - .mp4
+        - .avi
+        - .mov
+        - .mkv
+        - .webm
+      video: true
+      vision: true
+output:
+  budget_ratio: 0.6
+  display_preview_chars: 3000
+  max_preview_tokens: 2000
 safety:
   allow_network: true
-  dangerous_command_action: reject   # reject, ask, log
+  dangerous_command_action: reject
   enable_safety_guard: true
   max_file_size: 52428800
-  restrict_to_project: true
+  # 量化需要读取外部数据缓存（如 akshare 家目录缓存），故不强制限制在项目内
+  restrict_to_project: false
+  unknown_command_action: allow
+skills:
+  auto_discover: true
+  enabled: true
+  skills_dir: skills
+timeouts:
+  tool_default: 300
+  code_execution: 60
+  file_search: 20
+  model_summary: 60
+  sandbox_command: 120
+  # 量化任务常有数据抓取/回测等长命令：前台等待放宽，超时后自动转后台
+  shell_command: 120
+  shell_foreground_max: 600
+  shell_idle: 180
+  shell_background: 3600
+  web_request: 60
 tools:
   enable_code_execution: true
+  enable_fallback_scrape: true
   enable_sandbox: true
   enable_search: true
   enable_shell: true
@@ -143,55 +219,16 @@ tools:
   enable_web_search: true
   max_execution_time: 60
   sandbox_type: docker
-  search_api_url: http://192.168.0.106:8081    # 这是开发者xiefujin自己部署的实例，需要替换为你自己的实例
+  search_api_key: ''
+  search_api_url: http://192.168.0.106:8081
   search_engine: searxng
-
-# MCP（模型上下文协议）配置
-mcp:
-  # 是否启用MCP功能
-  enabled: true
-  
-  # 自动连接配置
-  auto_connect: true
-  connection_timeout: 30
-  max_retries: 1
-  
-  # STD类型MCP服务器配置（标准进程）
-  std_servers:
-    - name: local_tools
-      command: python3
-      args: 
-        - "-c"
-        - "print('MCP server placeholder')"
-      enabled: false
-      timeout: 30
-      retry_count: 3
-  
-  # SSE类型MCP服务器配置（Server-Sent Events）
-  sse_servers:
-    - name: filesystem
-      url: http://localhost:3001
-      enabled: false
-      timeout: 30
-      retry_count: 3
-    - name: database
-      url: http://localhost:3002
-      enabled: false
-      timeout: 30
-      retry_count: 3
-    - name: web_search
-      url: http://localhost:3003
-      enabled: false
-      timeout: 30
-      retry_count: 3
-
-# Skills配置
-skills:
-  # 是否启用skills功能
-  enabled: true
-  
-  # Skills目录（相对于项目根目录）
-  skills_dir: skills
-  
-  # 是否自动发现skills目录下的技能
-  auto_discover: true
+  # 工具 schema 分组：auto / core / web / full
+  tool_profile: auto
+  enable_media_tools: true
+  enable_mcp_tools: true
+  # 浏览器工具（fastbrowser）：留空自动探测 Chromium
+  chrome_path: ''
+  cdp_url: ''
+  browser_headless: true
+  browser_viewport_width: 1280
+  browser_viewport_height: 800

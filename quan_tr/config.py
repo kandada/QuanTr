@@ -80,14 +80,20 @@ class QuanTrConfig:
             },
             "backtest": {
                 "initial_capital": 100000,  # 初始资金
-                "commission_rate": 0.0003,  # 佣金费率
-                "slippage_rate": 0.0001,  # 滑点费率
+                "commission_rate": 0.0003,  # 佣金费率（单边）
+                "slippage_rate": 0.0001,  # 滑点费率（单边）
+                "stamp_duty_rate": 0.0005,  # 印花税（卖出，A股）
                 "max_position_ratio": 0.8,  # 最大持仓比例
                 "stop_loss_rate": 0.1,  # 止损比例
                 "take_profit_rate": 0.2,  # 止盈比例
+                "benchmark_symbol": "000300.SH",  # 基准：沪深300
                 "backtest_periods": {
                     "weekly": 7,  # 周回测周期
                     "monthly": 30,  # 月回测周期
+                },
+                "walk_forward": {
+                    "train_days": 250,
+                    "test_days": 60,
                 },
             },
             "file_structure": {
@@ -266,6 +272,27 @@ class QuanTrConfig:
         """获取模板目录路径"""
         return self.base_dir / self.get("file_structure.templates_dir")
 
+    def get_scoring_weights(self) -> Dict[str, float]:
+        """统一读取评分权重。
+
+        优先使用 config.yaml 的 ``analysis.scoring_weights``（新结构），
+        回退到 ``analysis.*_weight``（旧结构），避免两处配置不一致。
+        """
+        nested = self.get("analysis.scoring_weights") or {}
+        if isinstance(nested, dict) and nested:
+            return {
+                "fundamental": float(nested.get("fundamental", 0.4)),
+                "technical": float(nested.get("technical", 0.3)),
+                "risk": float(nested.get("risk", 0.2)),
+                "sentiment": float(nested.get("sentiment", 0.1)),
+            }
+        return {
+            "fundamental": float(self.get("analysis.fundamental_weight", 0.4)),
+            "technical": float(self.get("analysis.technical_weight", 0.3)),
+            "risk": float(self.get("analysis.risk_weight", 0.2)),
+            "sentiment": float(self.get("analysis.sentiment_weight", 0.1)),
+        }
+
     def validate_config(self) -> Dict[str, List[str]]:
         """验证配置完整性"""
         issues = {"warnings": [], "errors": []}
@@ -293,14 +320,7 @@ class QuanTrConfig:
             issues["warnings"].append(f"配置文件不存在: {self.config_path}")
 
         # 检查分析权重总和
-        weights = [
-            self.get("analysis.fundamental_weight"),
-            self.get("analysis.technical_weight"),
-            self.get("analysis.risk_weight"),
-            self.get("analysis.sentiment_weight"),
-        ]
-
-        weight_sum = sum(weights)
+        weight_sum = sum(self.get_scoring_weights().values())
         if abs(weight_sum - 1.0) > 0.001:
             issues["errors"].append(f"分析权重总和应为1.0，当前为{weight_sum:.3f}")
 
@@ -320,10 +340,11 @@ class QuanTrConfig:
         print(f"  资源目录: {self.get_resources_dir()}")
 
         print(f"\n📈 分析配置:")
-        print(f"  基本面权重: {self.get('analysis.fundamental_weight')}")
-        print(f"  技术面权重: {self.get('analysis.technical_weight')}")
-        print(f"  风险权重: {self.get('analysis.risk_weight')}")
-        print(f"  情绪权重: {self.get('analysis.sentiment_weight')}")
+        weights = self.get_scoring_weights()
+        print(f"  基本面权重: {weights['fundamental']}")
+        print(f"  技术面权重: {weights['technical']}")
+        print(f"  风险权重: {weights['risk']}")
+        print(f"  情绪权重: {weights['sentiment']}")
 
         print(f"\n📊 回测配置:")
         print(f"  初始资金: ¥{self.get('backtest.initial_capital'):,.2f}")

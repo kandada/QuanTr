@@ -15,17 +15,13 @@ import time
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
-if __package__ in (None, ""):
-    sys.path.insert(0, str(Path(__file__).parent.parent))
-    from aacode.core.main_agent import MainAgent
-    from aacode.utils.context_manager import ContextManager
-    from aacode.utils.safety import SafetyGuard
-    from aacode.config import settings
-else:
-    from .core.main_agent import MainAgent
-    from .utils.context_manager import ContextManager
-    from .utils.safety import SafetyGuard
-    from .config import settings
+if str(Path(__file__).resolve().parent.parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from aacode.core.main_agent import MainAgent
+from aacode.utils.context_manager import ContextManager
+from aacode.utils.safety import SafetyGuard
+from aacode.config import settings
 
 from aacode.i18n import t
 
@@ -82,6 +78,9 @@ class AICoder:
         # 不使 with chdir，避免路径混乱问题
         # 所有工具都会使 with target_project作为基准路径
 
+        # 加载项目initialized指令（须在构造 MainAgent 前完成）
+        self._load_init_instructions()
+
         # initialized核心组件（使 with target_project作为安全护栏的基准）
         self.safety_guard = SafetyGuard(
             self.target_project,
@@ -90,15 +89,14 @@ class AICoder:
         # 上下文管理器使 with aacode工作目录（存放日志等）
         self.context_manager = ContextManager(self.project_path)
         # 主Agent使 with 目标项目目录（实际操作目录）
+        # aacode 1.8.x：init_instructions 在构造时注入
         self.main_agent = MainAgent(
             project_path=self.target_project,
             context_manager=self.context_manager,
             safety_guard=self.safety_guard,
             model_config=model_config or settings.DEFAULT_MODEL,
+            init_instructions=self.init_instructions,
         )
-
-        # 加载项目initialized指令
-        self._load_init_instructions()
 
         # initialized类方法映射器
         self._init_class_method_mapper()
@@ -139,11 +137,8 @@ class AICoder:
     def _init_class_method_mapper(self):
         """initialized类方法映射器"""
         try:
-            # 尝试使 with 增强版映射器（现在在class_method_mapper.py中）
-            if __package__ in (None, ""):
-                from utils.class_method_mapper import EnhancedClassMethodMapper
-            else:
-                from .utils.class_method_mapper import EnhancedClassMethodMapper
+            # 统一从 aacode 包导入，避免本地旧副本造成版本混用
+            from aacode.utils.class_method_mapper import EnhancedClassMethodMapper
 
             self.class_method_mapper = EnhancedClassMethodMapper(self.target_project)
             print(t("cli.mapper_init_ok"))
@@ -151,10 +146,7 @@ class AICoder:
             print(t("cli.mapper_init_fail", e=str(e)))
             try:
                 # 回退到基础版映射器
-                if __package__ in (None, ""):
-                    from utils.class_method_mapper import ClassMethodMapper
-                else:
-                    from .utils.class_method_mapper import ClassMethodMapper
+                from aacode.utils.class_method_mapper import ClassMethodMapper
 
                 self.class_method_mapper = ClassMethodMapper(self.target_project)
                 print(t("cli.mapper_basic_ok"))
@@ -163,10 +155,7 @@ class AICoder:
                 self.class_method_mapper = None
 
         # initializedto-do-list管理器（使 with aacode工作目录）
-        if __package__ in (None, ""):
-            from utils.todo_manager import get_todo_manager
-        else:
-            from .utils.todo_manager import get_todo_manager
+        from aacode.utils.todo_manager import get_todo_manager
 
         self.todo_manager = get_todo_manager(self.project_path)
 
@@ -307,14 +296,14 @@ class AICoder:
         print(f"✅ Todo created: {todo_file}")
 
         try:
-            # Run主Agent，传递类方法映射信息
+            # aacode 1.8.x execute 签名：
+            # execute(task, task_dir, max_iterations, todo_manager, event_callback)
+            # init_instructions 已在构造 MainAgent 时注入。
             result = await self.main_agent.execute(
                 task=task,
-                init_instructions=self.init_instructions,
                 task_dir=task_dir,
                 max_iterations=max_iterations,
-                project_analysis=analysis_result,
-                todo_manager=self.todo_manager,  # 传递todo管理器
+                todo_manager=self.todo_manager,
             )
             return result
         except asyncio.CancelledError:

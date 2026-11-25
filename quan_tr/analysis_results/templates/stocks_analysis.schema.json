@@ -1,0 +1,256 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantr.local/schemas/stocks_analysis.v2.json",
+  "title": "QuanTr Stocks Analysis (v2)",
+  "description": "Contract for a date's stock analysis summary. Units: all *_pct fields are percentages (e.g. 12.5 means 12.5%), prices/market_cap_cny are absolute CNY, scores are 0-100. Missing fundamentals/sentiment must be null, never a fake 0.",
+  "type": "object",
+  "required": ["schema_version", "metadata", "summary", "data_quality", "stocks"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "pattern": "^2\\.[0-9]+\\.[0-9]+$" },
+    "metadata": {
+      "type": "object",
+      "required": ["analysis_date", "total_stocks"],
+      "properties": {
+        "analysis_date": { "type": "string", "format": "date" },
+        "generated_at": { "type": "string" },
+        "generated_by": { "type": "string" },
+        "total_stocks": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "summary": {
+      "type": "object",
+      "required": ["market_sentiment", "risk_level", "recommendations"],
+      "additionalProperties": false,
+      "properties": {
+        "market_sentiment": { "enum": ["bullish", "neutral", "bearish"] },
+        "risk_level": { "enum": ["low", "medium", "high"] },
+        "recommendations": {
+          "type": "object",
+          "required": ["strong_buy", "buy", "hold", "sell", "strong_sell"],
+          "additionalProperties": false,
+          "properties": {
+            "strong_buy": { "type": "integer", "minimum": 0 },
+            "buy": { "type": "integer", "minimum": 0 },
+            "hold": { "type": "integer", "minimum": 0 },
+            "sell": { "type": "integer", "minimum": 0 },
+            "strong_sell": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "data_quality": {
+      "type": "object",
+      "required": ["status", "as_of", "sources"],
+      "additionalProperties": true,
+      "properties": {
+        "status": { "enum": ["real", "partial", "simulated", "missing"] },
+        "as_of": { "type": "string", "format": "date" },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["source"],
+            "additionalProperties": true,
+            "properties": {
+              "source": { "type": "string" },
+              "is_simulated": { "type": "boolean" },
+              "retrieved_at": { "type": "string" }
+            }
+          }
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "stocks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/stock" }
+    },
+    "ranking": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["symbol", "rank", "overall"],
+        "additionalProperties": true,
+        "properties": {
+          "symbol": { "type": "string" },
+          "rank": { "type": "integer", "minimum": 1 },
+          "percentile": { "type": "number", "minimum": 0, "maximum": 100 },
+          "overall": { "type": "number", "minimum": 0, "maximum": 100 },
+          "action": { "enum": ["strong_buy", "buy", "hold", "sell", "strong_sell"] },
+          "technical": { "$ref": "#/$defs/nullableNumber" },
+          "risk_level": { "enum": ["low", "medium", "high"] }
+        }
+      }
+    },
+    "portfolio": {
+      "type": "object",
+      "required": ["method", "constituents"],
+      "additionalProperties": true,
+      "properties": {
+        "method": { "type": "string" },
+        "top_n": { "type": "integer", "minimum": 0 },
+        "constituents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["symbol", "weight"],
+            "additionalProperties": true,
+            "properties": {
+              "symbol": { "type": "string" },
+              "score": { "$ref": "#/$defs/nullableNumber" },
+              "weight": { "type": "number", "minimum": 0, "maximum": 1 }
+            }
+          }
+        },
+        "invested_weight": { "type": "number", "minimum": 0, "maximum": 1 },
+        "cash_weight": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "benchmark": {
+      "type": "object",
+      "required": ["symbol", "source"],
+      "additionalProperties": true,
+      "properties": {
+        "symbol": { "type": "string" },
+        "source": { "type": "string" },
+        "return": { "$ref": "#/$defs/nullableNumber" },
+        "as_of": { "type": ["string", "null"] },
+        "excess_return": { "$ref": "#/$defs/nullableNumber" }
+      }
+    }
+  },
+  "$defs": {
+    "nullableNumber": { "type": ["number", "null"] },
+    "score": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+    "stock": {
+      "type": "object",
+      "required": [
+        "basic_info", "price", "fundamental", "technical",
+        "risk", "sentiment", "scores", "recommendation", "highlights"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "basic_info": {
+          "type": "object",
+          "required": ["name", "code", "market", "sector"],
+          "additionalProperties": true,
+          "properties": {
+            "name": { "type": "string" },
+            "code": { "type": "string", "pattern": "^[0-9A-Za-z.-]+$" },
+            "market": { "enum": ["SH", "SZ", "BJ", "HK", "US"] },
+            "sector": { "type": "string" }
+          }
+        },
+        "price": {
+          "type": "object",
+          "required": ["current", "change_pct", "high", "low", "volume", "market_cap_cny", "pe", "pb"],
+          "additionalProperties": true,
+          "properties": {
+            "current": { "type": "number", "exclusiveMinimum": 0 },
+            "change_pct": { "type": "number" },
+            "high": { "type": "number", "exclusiveMinimum": 0 },
+            "low": { "type": "number", "exclusiveMinimum": 0 },
+            "volume": { "type": "number", "minimum": 0 },
+            "market_cap_cny": { "type": ["number", "null"], "minimum": 0 },
+            "pe": { "type": ["number", "null"] },
+            "pb": { "type": ["number", "null"] }
+          }
+        },
+        "fundamental": {
+          "type": "object",
+          "required": ["revenue_growth_pct", "profit_growth_pct", "gross_margin_pct", "net_margin_pct", "roe_pct", "debt_ratio_pct"],
+          "additionalProperties": true,
+          "properties": {
+            "revenue_growth_pct": { "$ref": "#/$defs/nullableNumber" },
+            "profit_growth_pct": { "$ref": "#/$defs/nullableNumber" },
+            "gross_margin_pct": { "$ref": "#/$defs/nullableNumber" },
+            "net_margin_pct": { "$ref": "#/$defs/nullableNumber" },
+            "roe_pct": { "$ref": "#/$defs/nullableNumber" },
+            "debt_ratio_pct": { "$ref": "#/$defs/nullableNumber" }
+          }
+        },
+        "technical": {
+          "type": "object",
+          "required": ["trend", "ma20", "ma50", "ma200", "rsi", "macd", "volume_ratio", "support", "resistance"],
+          "additionalProperties": true,
+          "properties": {
+            "trend": { "enum": ["up", "down", "sideways"] },
+            "ma20": { "$ref": "#/$defs/nullableNumber" },
+            "ma50": { "$ref": "#/$defs/nullableNumber" },
+            "ma200": { "$ref": "#/$defs/nullableNumber" },
+            "rsi": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+            "macd": { "$ref": "#/$defs/nullableNumber" },
+            "volume_ratio": { "$ref": "#/$defs/nullableNumber" },
+            "support": { "$ref": "#/$defs/nullableNumber" },
+            "resistance": { "$ref": "#/$defs/nullableNumber" }
+          }
+        },
+        "risk": {
+          "type": "object",
+          "required": ["level", "score", "factors"],
+          "additionalProperties": true,
+          "properties": {
+            "level": { "enum": ["low", "medium", "high"] },
+            "score": { "type": "number", "minimum": 0, "maximum": 100 },
+            "factors": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "sentiment": {
+          "type": "object",
+          "required": ["score", "news", "buzz"],
+          "additionalProperties": true,
+          "properties": {
+            "score": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+            "news": { "enum": ["positive", "negative", "neutral"] },
+            "buzz": { "type": "number", "minimum": 0 }
+          }
+        },
+        "scores": {
+          "type": "object",
+          "required": ["fundamental", "technical", "risk_safety", "sentiment", "overall"],
+          "additionalProperties": false,
+          "properties": {
+            "fundamental": { "$ref": "#/$defs/score" },
+            "technical": { "type": "number", "minimum": 0, "maximum": 100 },
+            "risk_safety": { "type": "number", "minimum": 0, "maximum": 100 },
+            "sentiment": { "$ref": "#/$defs/score" },
+            "overall": { "type": "number", "minimum": 0, "maximum": 100 }
+          }
+        },
+        "recommendation": {
+          "type": "object",
+          "required": ["action", "confidence", "target_price", "stop_loss", "reason"],
+          "additionalProperties": true,
+          "properties": {
+            "action": { "enum": ["strong_buy", "buy", "hold", "sell", "strong_sell"] },
+            "confidence": { "enum": ["high", "medium", "low"] },
+            "target_price": { "type": "number", "minimum": 0 },
+            "stop_loss": { "type": "number", "minimum": 0 },
+            "reason": { "type": "string" }
+          }
+        },
+        "highlights": {
+          "type": "object",
+          "required": ["strengths", "risks", "opportunities"],
+          "additionalProperties": true,
+          "properties": {
+            "strengths": { "type": "array", "items": { "type": "string" } },
+            "risks": { "type": "array", "items": { "type": "string" } },
+            "opportunities": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "price_source": { "type": "string" },
+            "fundamentals_source": { "type": ["string", "null"] },
+            "is_simulated": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  }
+}

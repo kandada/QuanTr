@@ -1,0 +1,93 @@
+{
+  "metadata": {
+    "analysis_date": "YYYY-MM-DD",
+    "version": "1.0.0",
+    "total_stocks": 0,
+    "generated_by": "QuanTr AI Agent"
+  },
+  "summary": {
+    "market_sentiment": "neutral",
+    "risk_level": "medium",
+    "recommendations": {
+      "strong_buy": 0,
+      "buy": 0,
+      "hold": 0,
+      "sell": 0,
+      "strong_sell": 0
+    }
+  },
+  "data_quality": {
+    "status": "real/partial/simulated/missing",
+    "as_of": "YYYY-MM-DD",
+    "sources": [],
+    "notes": ""
+  },
+  "stocks": [
+    {
+      "basic_info": {
+        "name": "股票名称",
+        "code": "股票代码",
+        "market": "A股",
+        "sector": "行业板块"
+      },
+      "price": {
+        "current": 0,
+        "change_pct": 0,
+        "high": 0,
+        "low": 0,
+        "volume": 0,
+        "market_cap": 0,
+        "pe": 0,
+        "pb": 0
+      },
+      "fundamental": {
+        "revenue_growth": 0,
+        "profit_growth": 0,
+        "gross_margin": 0,
+        "net_margin": 0,
+        "roe": 0,
+        "debt_ratio": 0
+      },
+      "technical": {
+        "trend": "up/down/sideways",
+        "ma20": 0,
+        "ma50": 0,
+        "ma200": 0,
+        "rsi": 0,
+        "macd": 0,
+        "volume_ratio": 0,
+        "support": 0,
+        "resistance": 0
+      },
+      "risk": {
+        "level": "low/medium/high",
+        "score": 0,
+        "factors": []
+      },
+      "sentiment": {
+        "score": 0,
+        "news": "positive/negative/neutral",
+        "buzz": 0
+      },
+      "scores": {
+        "fundamental": 0,
+        "technical": 0,
+        "risk": 0,
+        "sentiment": 0,
+        "overall": 0
+      },
+      "recommendation": {
+        "action": "strong_buy/buy/hold/sell/strong_sell",
+        "confidence": "high/medium/low",
+        "target_price": 0,
+        "stop_loss": 0,
+        "reason": ""
+      },
+      "highlights": {
+        "strengths": [],
+        "risks": [],
+        "opportunities": []
+      }
+    }
+  ]
+}

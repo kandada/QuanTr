@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quantr-engine"
+version = "0.1.0"
+description = "Deterministic, auditable quantitative research engine (PIT data, factors, backtests, schema-validated reports)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+authors = [{ name = "xiefujin", email = "490021684@qq.com" }]
+keywords = ["quant", "backtest", "factors", "trading-research", "duckdb", "pit"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Financial and Insurance Industry",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Office/Business :: Financial :: Investment",
+  "Typing :: Typed",
+]
+dependencies = [
+  "pandas>=2.0",
+  "numpy>=1.24",
+  "duckdb>=1.0",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+agent = ["aacode>=1.8.17"]
+mcp = ["mcp>=1.0"]
+talib = ["TA-Lib>=0.4.28"]
+dev = [
+  "pytest>=7.4",
+  "pytest-asyncio>=0.21",
+  "pytest-cov>=4.0",
+  "build>=1.0",
+  "twine>=5.0",
+]
+
+[project.scripts]
+quantr = "quantr.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/kandada/QuanTr"
+Documentation = "https://github.com/kandada/QuanTr#readme"
+Repository = "https://github.com/kandada/QuanTr"
+Issues = "https://github.com/kandada/QuanTr/issues"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["quantr*"]
+
+[tool.setuptools.package-data]
+quantr = [
+  "templates/*.json",
+  "templates/*.md",
+  "skill/*.md",
+  "workspace_template/*",
+  "py.typed",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["_legacy_vendored_1.7.7", ".git", ".venv", "venv", "__pycache__", ".aacode", "src"]
+asyncio_mode = "auto"
