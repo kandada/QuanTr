@@ -16,7 +16,7 @@ Do NOT use for: live trading, guaranteeing returns, or fabricating data when a s
 4. Before finishing, `validate --strict` must pass.
 5. Output is research only, not investment advice.
 
-## Commands (run via run_shell; working dir = `quan_tr/`)
+## Commands (run via run_shell; working dir = workspace root)
 - Update real data into the local store:
   `quantr fetch --symbols 000001.SZ --source auto --save --json`
 - Technical indicators:

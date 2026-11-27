@@ -1,4 +1,4 @@
-# quan_tr/programs/utils/data_provenance.py
+# src/quantr/data_provenance.py
 """数据来源与真实性标记（Data provenance）。
 
 目的：让“真实数据 / 模拟数据 / 缺失”在数据层显式可见，避免把随机生成的

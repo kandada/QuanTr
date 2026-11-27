@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-QUANTR = Path(__file__).resolve().parent.parent / "quan_tr"
+QUANTR = Path(__file__).resolve().parent.parent / "examples" / "workspace"
 SRC = Path(__file__).resolve().parent.parent / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))

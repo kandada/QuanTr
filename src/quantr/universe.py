@@ -1,4 +1,4 @@
-# quan_tr/programs/utils/universe.py
+# src/quantr/universe.py
 """Point-in-time universe membership.
 
 File format (``<base>/store/universe/<index>.csv``):

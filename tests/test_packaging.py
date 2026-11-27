@@ -6,7 +6,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 PKG = ROOT / "src" / "quantr"
-QUANTR = ROOT / "quan_tr"
+QUANTR = ROOT / "examples" / "workspace"
 
 
 def _pyproject():
@@ -64,3 +64,10 @@ def test_skill_not_drifted():
     workspace = (QUANTR / "skills" / "quan_tr" / "SKILL.md").read_bytes()
     packaged = (PKG / "skill" / "SKILL.md").read_bytes()
     assert workspace == packaged, "SKILL.md drift between workspace and package"
+
+
+def test_changelog_mentions_current_version():
+    import quantr
+
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert quantr.__version__ in changelog

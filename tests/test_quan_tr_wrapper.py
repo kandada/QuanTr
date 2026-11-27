@@ -13,7 +13,7 @@ import pytest
 
 
 def _make_coder(tmp_path: Path):
-    import main_quan_tr as m
+    import agent.main_quan_tr as m
 
     work = tmp_path / "work"
     target = tmp_path / "target"
@@ -28,7 +28,7 @@ def _make_coder(tmp_path: Path):
 
 
 def test_framework_imports_resolve_to_aacode_package():
-    import main_quan_tr as m
+    import agent.main_quan_tr as m
 
     assert m.MainAgent.__module__.startswith("aacode.")
     assert m.ContextManager.__module__.startswith("aacode.")
@@ -47,7 +47,7 @@ def test_execute_signature_matches_aacode_1_8():
 
 
 def test_build_model_config_uses_name_key(tmp_path):
-    import main_quan_tr as m
+    import agent.main_quan_tr as m
 
     cfg = m._build_model_config()
     assert isinstance(cfg, dict)
@@ -58,7 +58,7 @@ def test_build_model_config_uses_name_key(tmp_path):
 
 
 def test_event_logger_toggle(monkeypatch):
-    import main_quan_tr as m
+    import agent.main_quan_tr as m
 
     monkeypatch.setenv("QUANTR_EVENT_LOG", "0")
     assert m._make_event_logger() is None
@@ -107,7 +107,7 @@ def test_config_yaml_has_new_schema():
     import yaml
 
     root = Path(__file__).resolve().parent.parent
-    data = yaml.safe_load((root / "aacode_config.yaml").read_text(encoding="utf-8"))
+    data = yaml.safe_load((root / "agent" / "aacode_config.yaml").read_text(encoding="utf-8"))
     assert data["context"]["max_context_length"] == 1000000
     assert data["diff_hook"]["enabled"] is True
     assert data["tools"]["tool_profile"] in {"auto", "core", "web", "full"}

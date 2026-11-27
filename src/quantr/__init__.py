@@ -11,6 +11,6 @@ Quick start::
     quantr factors --symbol 000001.SZ --json
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = ["__version__"]

@@ -1,4 +1,4 @@
-# quan_tr/programs/service.py
+# src/quantr/service.py
 """Stable service layer shared by CLI, MCP server and library facade.
 
 Every function returns a JSON-serializable dict and never fabricates data.
@@ -9,15 +9,10 @@ CLI/MCP/library stay in sync.
 from __future__ import annotations
 
 import importlib.util
-import sys
+import json
+import platform
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
-_PROG = Path(__file__).resolve().parent
-for _sub in ("", "utils", "analyzers", "backtesters", "data_fetchers"):
-    _path = _PROG / _sub
-    if str(_path) not in sys.path:
-        sys.path.insert(0, str(_path))
 
 from .schema import parse_symbol  # noqa: E402
 from ._paths import workspace_root  # noqa: E402
@@ -34,7 +29,7 @@ def _base(base_dir: Optional[Path | str]) -> Path:
 
 
 def load_config(base_dir: Optional[Path | str] = None) -> Optional[Dict[str, Any]]:
-    """Load quan_tr/config.py -> merged config dict (best effort)."""
+    """Load workspace config.py -> merged config dict (best effort)."""
     root = _base(base_dir)
     path = root / "config.py"
     if not path.exists():
@@ -94,6 +89,72 @@ def store(base_dir: Optional[Path | str] = None) -> Dict[str, Any]:
         meta = get_meta(symbol, base) or {}
         items.append({"symbol": symbol, **meta})
     return {"ok": True, "count": len(items), "symbols": items}
+
+
+def workspace_symbols(base_dir: Optional[Path | str] = None) -> List[str]:
+    """Read symbols from ``<workspace>/stocks_pool.json`` (raw forms ok)."""
+    path = _base(base_dir) / "stocks_pool.json"
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return []
+    return [str(item["symbol"]) for item in data.get("stocks", []) if item.get("symbol")]
+
+
+def _pkg_version(name: str) -> Optional[str]:
+    try:
+        from importlib import metadata
+
+        return metadata.version(name)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def doctor(base_dir: Optional[Path | str] = None) -> Dict[str, Any]:
+    """Environment / workspace diagnostics for `quantr doctor`."""
+    from . import __version__
+    from ._paths import PACKAGE_DIR, TEMPLATES_DIR, templates_dir
+
+    base = _base(base_dir)
+    markers = {
+        "stocks_pool.json": (base / "stocks_pool.json").exists(),
+        "config.yaml": (base / "config.yaml").exists(),
+        "analysis_results/templates": (base / "analysis_results" / "templates").is_dir(),
+    }
+    is_workspace = all(markers.values())
+    tdir = templates_dir(base)
+    symbols = list_symbols(base)
+    deps = {name: _pkg_version(name) for name in ("pandas", "numpy", "duckdb", "PyYAML")}
+
+    hints: List[str] = []
+    if not is_workspace:
+        hints.append("当前目录不是工作区：运行 `quantr init <dir>`，或用 --base-dir 指定。")
+    if not symbols:
+        hints.append("数据仓为空：先 `quantr fetch --symbols 000001.SZ --save`（或 `--pool`）。")
+    if _pkg_version("aacode") is None:
+        hints.append('未安装 aacode（可选）：`pip install "quantr-engine[agent]"`。')
+    if _pkg_version("mcp") is None:
+        hints.append('未安装 mcp（可选）：`pip install "quantr-engine[mcp]"`。')
+
+    return {
+        "ok": True,
+        "version": __version__,
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "package_dir": str(PACKAGE_DIR),
+        "workspace": str(base),
+        "is_workspace": is_workspace,
+        "workspace_markers": markers,
+        "templates_source": "workspace" if tdir != TEMPLATES_DIR else "package",
+        "templates_dir": str(tdir),
+        "store_symbols": len(symbols),
+        "dependencies": deps,
+        "aacode": _pkg_version("aacode"),
+        "mcp": _pkg_version("mcp"),
+        "hints": hints,
+    }
 
 
 # ─── analysis ───────────────────────────────────────────────────────────────

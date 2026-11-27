@@ -1,4 +1,4 @@
-# quan_tr/programs/utils/schema.py
+# src/quantr/schema.py
 """统一证券代码与行情数据 schema。
 
 - ``parse_symbol``: 把各种写法（000001.SZ / 000001_SZ / sh600000 / 0700.HK / AAPL）

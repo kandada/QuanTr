@@ -1,4 +1,4 @@
-# quan_tr/programs/backtesters/engine.py
+# src/quantr/engine.py
 """严谨（够用）的向量化回测引擎。
 
 特性：

@@ -1,4 +1,4 @@
-# quan_tr/programs/run_pipeline.py
+# src/quantr/run_pipeline.py
 """可复现的量化流水线（替代按日期新建的一次性脚本）。
 
 一条命令完成：真实取数 → 确定性因子/指标 → 生成模板化 JSON + 单股 MD →

@@ -25,21 +25,18 @@ htmlcov/
 /dist/
 /build/
 
-# ── Legacy vendored copy (kept only in the local dev workspace) ──
-/_legacy_vendored_1.7.7/
-
 # ── Local market data / outputs (NEVER commit) ───────────
 /store/
-/quan_tr/store/
-/quan_tr/data_files/
-/quan_tr/logs/
-/quan_tr/.aacode/
+/examples/workspace/store/
+/examples/workspace/data_files/
+/examples/workspace/logs/
+/examples/workspace/.aacode/
 *.log
 
 # Dated analysis outputs, but keep the templates contract
-/quan_tr/analysis_results/*/
-!/quan_tr/analysis_results/templates/
+/examples/workspace/analysis_results/*/
+!/examples/workspace/analysis_results/templates/
 
 # Generated backtest reports / structure maps
-/quan_tr/backtest_reports/*.md
-/quan_tr/project_structure.md
+/examples/workspace/backtest_reports/*.md
+/examples/workspace/project_structure.md

@@ -1,4 +1,4 @@
-# quan_tr/programs/utils/data_store.py
+# src/quantr/data_store.py
 """本地 PIT 数据仓（Parquet + DuckDB）。
 
 布局：

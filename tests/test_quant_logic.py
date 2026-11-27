@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-QUANTR = ROOT / "quan_tr"
+QUANTR = ROOT / "examples" / "workspace"
 
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -169,7 +169,7 @@ def test_scoring_weights_coherent():
 
 
 def test_task_generators_include_guardrails():
-    import main_quan_tr as m
+    import agent.main_quan_tr as m
 
     for text in (m.generate_stock_analysis_task(rewrite=True), m.generate_backtest_task("weekly")):
         assert "quantr validate" in text

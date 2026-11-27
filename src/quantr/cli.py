@@ -1,4 +1,4 @@
-# quan_tr/programs/cli.py
+# src/quantr/cli.py
 """Unified `quantr` CLI.
 
 Stable JSON contract for humans, cron and agents:
@@ -9,12 +9,14 @@ Stable JSON contract for humans, cron and agents:
 Exit code: 0 on ok, 1 otherwise.
 
 Examples:
-    python programs/cli.py fetch --symbols 000001.SZ --source auto --save
-    python programs/cli.py indicators --symbol 000001.SZ --json
-    python programs/cli.py factors --symbol 000001.SZ --json
-    python programs/cli.py backtest --symbol 000001.SZ --walk-forward --json
-    python programs/cli.py pipeline --date 2026-11-24 --symbols 000001.SZ --offline --json
-    python programs/cli.py validate --date 2026-11-24 --strict --json
+    quantr --version
+    quantr doctor
+    quantr init my-research
+    quantr fetch --symbols 000001.SZ --save --json
+    quantr factors --symbol 000001.SZ --json
+    quantr backtest --symbol 000001.SZ --walk-forward --json
+    quantr pipeline --date 2026-11-24 --offline --json
+    quantr validate --date 2026-11-24 --strict --json
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from . import service
+from . import __version__, service
 
 
 def _ok_of(command: str, result: Any) -> bool:
@@ -48,57 +50,167 @@ def _emit(command: str, result: Any, json_mode: bool) -> int:
 
 
 def _fail(command: str, exc: Exception, json_mode: bool) -> int:
-    payload = {
-        "ok": False,
-        "command": command,
-        "error": f"{type(exc).__name__}: {exc}",
-    }
+    message = f"{type(exc).__name__}: {exc}"
+    low = message.lower()
+    hint = ""
+    if "no local data" in low or "insufficient local data" in low:
+        hint = "先补数据：`quantr fetch --symbols <symbol> --save`，并确认 --base-dir 指向正确工作区。"
+    elif "no symbols" in low:
+        hint = "用 `--symbols` 或 `--pool`；新工作区先 `quantr init <dir>`。"
+    elif "no usable data" in low:
+        hint = "检查数据仓（`quantr fetch --pool --save`），或去掉 `--offline` 联网取数。"
+    elif "legacy_or_unsupported" in low:
+        hint = "旧 v1 报告加 `--allow-v1`，或重新 `quantr pipeline` 生成 v2。"
+    elif "jsonschema" in low and "missing" in low:
+        hint = "安装依赖：`pip install jsonschema`。"
+    payload = {"ok": False, "command": command, "error": message}
+    if hint:
+        payload["hint"] = hint
     if json_mode:
         print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
     else:
-        print(f"❌ {command}: {payload['error']}")
+        print(f"❌ {command}: {message}")
+        if hint:
+            print(f"   → {hint}")
     return 1
 
 
 def _human(command: str, payload: Dict[str, Any]) -> None:
     if not payload["ok"]:
         print(f"❌ {command}: {payload.get('error', 'failed')}")
+        if payload.get("hint"):
+            print(f"   → {payload['hint']}")
         return
-    result = payload.get("result", {})
+
+    r = payload.get("result", {})
     if command == "fetch":
-        for rec in result.get("records", []):
+        records = r.get("records", [])
+        if not records:
+            print("no records")
+        for rec in records:
             if rec.get("ok"):
-                print(f"✅ {rec['symbol']} {rec.get('source', '')} rows={rec.get('rows')}")
+                print(
+                    f"✅ {rec['symbol']}  {rec.get('source', '')}  rows={rec.get('rows')}  "
+                    f"{rec.get('first_date')}..{rec.get('last_date')}"
+                )
             else:
                 print(f"❌ {rec.get('symbol')}: {rec.get('error')}")
     elif command == "store":
-        print(f"store: {result.get('count', 0)} symbols")
-        for item in result.get("symbols", []):
-            print(f"  - {item['symbol']} rows={item.get('rows')} {item.get('first_date')}..{item.get('last_date')}")
+        print(f"store: {r.get('count', 0)} symbol(s)")
+        for item in r.get("symbols", []):
+            sim = "  [SIMULATED]" if item.get("is_simulated") else ""
+            print(
+                f"  - {item['symbol']}  rows={item.get('rows')}  "
+                f"{item.get('first_date')}..{item.get('last_date')}{sim}"
+            )
     elif command == "indicators":
-        print(f"{result.get('symbol')} snapshot: {json.dumps(result.get('snapshot', {}), ensure_ascii=False)}")
-    elif command == "factors":
+        snap = r.get("snapshot", {}) or {}
+        print(f"{r.get('symbol')}  bars={snap.get('bars')}  last={snap.get('last_date')}")
         print(
-            f"{result.get('symbol')} overall={result.get('overall')} "
-            f"action={result.get('action')} risk={result.get('risk', {}).get('level')}"
+            f"  trend={snap.get('trend')}  close={snap.get('close')}  "
+            f"MA20/50/200={snap.get('ma20')}/{snap.get('ma50')}/{snap.get('ma200')}"
         )
+        print(
+            f"  RSI={snap.get('rsi')}  MACD={snap.get('macd')}  vol_ratio={snap.get('volume_ratio')}  "
+            f"support/resistance={snap.get('support')}/{snap.get('resistance')}"
+        )
+        print(
+            f"  vol_annual={snap.get('volatility_annual')}  max_dd={snap.get('max_drawdown')}"
+        )
+    elif command == "factors":
+        risk = r.get("risk", {}) or {}
+        subs = r.get("subscores", {}) or {}
+        print(
+            f"{r.get('symbol')}  overall={r.get('overall')}  action={r.get('action')}  "
+            f"confidence={r.get('confidence')}"
+        )
+        print(
+            f"  subscores: fundamental={subs.get('fundamental')} technical={subs.get('technical')} "
+            f"risk_safety={subs.get('risk')} sentiment={subs.get('sentiment')}"
+        )
+        print(
+            f"  risk: level={risk.get('level')} score={risk.get('score')} factors={risk.get('factors')}"
+        )
+        for note in r.get("notes", []) or []:
+            print(f"  note: {note}")
     elif command == "backtest":
-        metrics = result.get("metrics", result)
-        print(f"{result.get('symbol')} {json.dumps(metrics, ensure_ascii=False, default=str)}")
+        if r.get("mode") == "walk_forward":
+            print(
+                f"{r.get('symbol')}  walk-forward windows={r.get('window_count')}  "
+                f"positive={r.get('positive_windows')}  avg_return={r.get('avg_return')}"
+            )
+        else:
+            m = r.get("metrics", {}) or {}
+            print(
+                f"{r.get('symbol')}  total_return={m.get('total_return')} cagr={m.get('cagr')} "
+                f"max_dd={m.get('max_drawdown')} sharpe={m.get('sharpe')}"
+            )
+            print(
+                f"  trades={m.get('trades')} win_rate={m.get('win_rate')} "
+                f"profit_factor={m.get('profit_factor')} exposure={m.get('exposure')}"
+            )
     elif command == "validate":
-        verdict = "OK" if result.get("ok") else "FAIL"
-        print(f"validate {result.get('date')}: {verdict} "
-              f"errors={len(result.get('errors', []))} warnings={len(result.get('warnings', []))}")
+        verdict = "OK" if r.get("ok") else "FAIL"
+        print(
+            f"validate {r.get('date')}: {verdict}  data_status={r.get('data_quality_status')}  "
+            f"schema={r.get('schema_version')}"
+        )
+        for err in r.get("errors", [])[:10]:
+            print(f"  ❌ {err.get('path')}: {err.get('issue')} {err.get('detail', '')}".rstrip())
+        for warn in r.get("warnings", [])[:10]:
+            print(f"  ⚠️  {warn.get('path')}: {warn.get('issue')} {warn.get('detail', '')}".rstrip())
+        total = len(r.get("errors", [])) + len(r.get("warnings", []))
+        if total > 20:
+            print(f"  ... ({total} total)")
     elif command == "pipeline":
-        dq = result.get("data_quality", {})
-        print(f"pipeline {result.get('date')} symbols={result.get('symbols')} data_status={dq.get('status')}")
-        print(f"  json: {result.get('json')}")
-    elif command == "skill":
-        print(f"skill: {result.get('target')}")
+        dq = r.get("data_quality", {}) or {}
+        print(
+            f"pipeline {r.get('date')}  symbols={len(r.get('symbols', []))}  "
+            f"data_status={dq.get('status')}  as_of={dq.get('as_of')}"
+        )
+        ranking = r.get("ranking", []) or []
+        if ranking:
+            print("  ranking:")
+            for row in ranking[:10]:
+                print(
+                    f"    #{row.get('rank')} {row.get('symbol')}  "
+                    f"overall={row.get('overall')}  action={row.get('action')}"
+                )
+        pf = r.get("portfolio", {}) or {}
+        if pf:
+            print(
+                f"  portfolio: {pf.get('method')}  invested={pf.get('invested_weight')}  "
+                f"cash={pf.get('cash_weight')}"
+            )
+            for item in pf.get("constituents", []):
+                print(f"    - {item.get('symbol')}  weight={item.get('weight')}  score={item.get('score')}")
+        bm = r.get("benchmark")
+        if bm:
+            print(f"  benchmark: {bm.get('symbol')}  return={bm.get('return')}  as_of={bm.get('as_of')}")
+        print(f"  wrote: {r.get('json')}")
+        print(f"  validation: {'OK' if r.get('validation', {}).get('ok') else 'FAIL'}")
+    elif command == "doctor":
+        print(f"quantr {r.get('version')}  python {r.get('python')}  {r.get('platform')}")
+        print(f"  workspace: {r.get('workspace')}  is_workspace={r.get('is_workspace')}")
+        print(f"  templates: {r.get('templates_source')} ({r.get('templates_dir')})")
+        print(f"  store symbols: {r.get('store_symbols')}")
+        deps = r.get("dependencies", {}) or {}
+        print("  deps: " + ", ".join(f"{k}={v}" for k, v in deps.items()))
+        print(f"  aacode={r.get('aacode')}  mcp={r.get('mcp')}")
+        for hint in r.get("hints", []) or []:
+            print(f"  hint: {hint}")
     elif command == "init":
-        print(f"workspace: {result.get('root')} (created {len(result.get('created', []))} files)")
+        print(f"workspace: {r.get('root')}  (created {len(r.get('created', []))} files)")
+        print("next:")
+        print("  cd <workspace>")
+        print("  quantr fetch --pool --save")
+        print("  quantr pipeline --offline --json")
+        print("  quantr validate --date <today> --strict")
+    elif command == "skill":
+        print(f"skill: {r.get('target')}")
+        print("  → restart the agent so it re-discovers skills")
     else:
-        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+        print(json.dumps(r, ensure_ascii=False, indent=2, default=str))
 
 
 def _load_json(path: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -110,16 +222,18 @@ def _load_json(path: Optional[str]) -> Optional[Dict[str, Any]]:
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--json", action="store_true", help="输出 JSON（推荐给 agent/cron）")
-    common.add_argument("--base-dir", default=None, help="quan_tr 根目录（默认按文件位置推断）")
+    common.add_argument("--base-dir", default=None, help="工作区根目录（默认按文件位置推断）")
 
     parser = argparse.ArgumentParser(
         prog="quantr",
         description="QuanTr CLI — deterministic, reproducible quant workflow (real data only).",
     )
+    parser.add_argument("--version", action="version", version=f"quantr {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("fetch", parents=[common], help="抓取真实行情到本地数据仓")
-    p.add_argument("--symbols", required=True, help="逗号分隔，如 000001.SZ,600000.SH")
+    p.add_argument("--symbols", default=None, help="逗号分隔，如 000001.SZ,600000.SH")
+    p.add_argument("--pool", action="store_true", help="从 stocks_pool.json 读取股票池")
     p.add_argument("--start", default=None, help="YYYY-MM-DD")
     p.add_argument("--end", default=None, help="YYYY-MM-DD")
     p.add_argument("--source", default="auto", choices=["auto", "akshare", "yfinance"])
@@ -127,6 +241,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-save", dest="save", action="store_false")
 
     sub.add_parser("store", parents=[common], help="列出本地数据仓")
+    sub.add_parser("doctor", parents=[common], help="环境/工作区自检")
 
     p = sub.add_parser("indicators", parents=[common], help="计算技术指标快照")
     p.add_argument("--symbol", required=True)
@@ -179,10 +294,16 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     try:
         if command == "fetch":
-            symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
+            symbols = [s.strip() for s in args.symbols.split(",") if s.strip()] if args.symbols else []
+            if not symbols and args.pool:
+                symbols = service.workspace_symbols(base)
+            if not symbols:
+                raise ValueError("no symbols: pass --symbols or --pool (needs stocks_pool.json)")
             result = service.fetch(symbols, args.start, args.end, args.source, args.save, base)
         elif command == "store":
             result = service.store(base)
+        elif command == "doctor":
+            result = service.doctor(base)
         elif command == "indicators":
             result = service.indicators(args.symbol, base)
         elif command == "factors":

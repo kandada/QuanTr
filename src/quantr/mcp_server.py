@@ -1,4 +1,4 @@
-# quan_tr/programs/mcp_server.py
+# src/quantr/mcp_server.py
 """MCP server exposing QuanTr's deterministic quant capabilities as tools.
 
 Design: ``list_tools()`` + ``call_tool()`` carry the logic and are testable
@@ -21,7 +21,7 @@ from . import service
 
 _STR = {"type": "string"}
 _BOOL = {"type": "boolean"}
-_BASE = {"type": "string", "description": "quan_tr project root (optional)"}
+_BASE = {"type": "string", "description": "workspace root (optional)"}
 
 TOOLS: List[Dict[str, Any]] = [
     {

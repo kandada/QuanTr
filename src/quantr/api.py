@@ -1,7 +1,7 @@
-# quan_tr/programs/api.py
+# src/quantr/api.py
 """Library facade for QuanTr's deterministic engine.
 
-    import sys; sys.path.insert(0, "quan_tr/programs")
+    import sys; sys.path.insert(0, "src")
     from api import Quantr
 
     q = Quantr()

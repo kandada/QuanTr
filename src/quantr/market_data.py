@@ -1,4 +1,4 @@
-# quan_tr/programs/data_fetchers/market_data.py
+# src/quantr/market_data.py
 """参数化的真实行情获取器（AKshare / Yahoo Finance）。
 
 设计原则：

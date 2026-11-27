@@ -1,4 +1,4 @@
-# quan_tr/programs/utils/validate_report.py
+# src/quantr/validate_report.py
 """Analysis output validator (contract v2).
 
 Two layers:
@@ -555,7 +555,7 @@ def validate_date(
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="QuanTr 分析产出校验器 (contract v2)")
     parser.add_argument("--date", required=True, help="分析日期 YYYY-MM-DD")
-    parser.add_argument("--base-dir", default=None, help="quan_tr 项目根目录")
+    parser.add_argument("--base-dir", default=None, help="工作区根目录")
     parser.add_argument("--strict", action="store_true", help="警告也视为失败")
     parser.add_argument("--allow-empty", action="store_true", help="允许空股票列表")
     parser.add_argument("--allow-v1", action="store_true", help="兼容校验旧版 v1 报告")

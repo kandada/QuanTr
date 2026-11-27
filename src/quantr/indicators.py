@@ -1,4 +1,4 @@
-# quan_tr/programs/utils/indicators.py
+# src/quantr/indicators.py
 """Deterministic technical indicators (pandas/numpy only).
 
 这些指标是纯代码计算，结果可复现、可单测；LLM 不应自行“估”数值。

@@ -1,4 +1,4 @@
-# quan_tr/programs/analyzers/portfolio.py
+# src/quantr/portfolio.py
 """Simple, auditable portfolio construction from a cross-sectional ranking.
 
 - Select top-N eligible names (exclude sell/strong_sell).

@@ -1,4 +1,4 @@
-# quan_tr/programs/analyzers/factor_engine.py
+# src/quantr/factor_engine.py
 """确定性因子/评分引擎（替代让 LLM “估”数值）。
 
 - 技术面/风险分由指标纯计算得到，可复现、可单测。

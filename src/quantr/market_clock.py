@@ -1,4 +1,4 @@
-# quan_tr/programs/utils/market_clock.py
+# src/quantr/market_clock.py
 """简易交易日历工具（无外部依赖）。
 
 用途：

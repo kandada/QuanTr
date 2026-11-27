@@ -1,246 +1,198 @@
-# QuanTr - 基于AI Agent的股票量化分析与策略回测系统
+# QuanTr / quantr-engine
 
-## 安装与快速开始 (PyPI)
+[![PyPI](https://img.shields.io/pypi/v/quantr-engine.svg)](https://pypi.org/project/quantr-engine/)
+[![Python](https://img.shields.io/pypi/pyversions/quantr-engine.svg)](https://pypi.org/project/quantr-engine/)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 
-```bash
-pip install quantr-engine          # 确定性引擎 + CLI
-pip install "quantr-engine[agent,mcp]"   # 可选：aacode 自主分析 + MCP server
-```
+**Deterministic, auditable quantitative research engine** — real data only,
+numbers computed by code, reports validated against a versioned contract.
 
-```bash
-quantr init my-research && cd my-research
-quantr fetch --symbols 000001.SZ --source auto --save --json
-quantr factors --symbol 000001.SZ --json
-quantr pipeline --symbols 000001.SZ --date 2026-11-24 --json
-quantr validate --date 2026-11-24 --strict --json
-```
+> 定位：**可审计的 AI 研究助理**。LLM 负责规划/解释/写报告，**数值全部由确定性代码计算**；
+> 数据缺失或模拟时，禁止给出买入结论。研究结果仅供参考，不构成投资建议。
 
-- MCP：`python -m quantr.mcp_server`（工具见 `--list`）
-- 库：`from quantr.api import Quantr`
-- Skill：`quantr skill install`
-- 数据只落在本地 `store/`（Parquet + DuckDB），**发布包内不含任何行情数据**。
-
-> 开发/发布：`pip install -e ".[dev]"`，`python -m build`，`twine upload dist/*`。
-
-## 概述
-
-QuanTr是一款基于aacode的股票分析和策略回测AI Agent系统，通过编程方式实现量化交易分析。系统利用AI Agent的自主编程能力，完成股票数据分析、策略生成和回测验证等任务。
-
-**核心理念**：编程即万物，CLI coding Agent可自主完成多数编程任务，因此也可自主完成量化交易领域的多数分析工作。
-
-## 主要特性
-
-- **自主编程能力**：基于aacode的AI Agent可自主开发、优化量化分析程序
-- **全面分析维度**：覆盖基本面分析、技术面分析、财务指标分析等多个维度
-- **自动化工作流**：从数据获取到分析报告生成的全流程自动化
-- **策略回测验证**：对分析策略进行历史数据回测，验证策略有效性
-- **中低频交易导向**：专注于半月周期以上的中低频交易策略
-
-## 系统架构
-
-```
-QuanTr/
-├── (aacode 包)                      # 框架从已安装/同级 aacode>=1.8.17 导入
-├── _legacy_vendored_1.7.7/         # 历史内嵌的 aacode 1.7.7 副本（仅存档，不再使用）
-├── quan_tr/                        # 量化交易工作目录
-│   ├── analysis_results/           # 分析结果（按日期组织）
-│   ├── backtest_reports/           # 回测报告
-│   ├── init.md                     # 约束和设计（非常重要）
-│   ├── config.py                   # quan_tr配置
-│   ├── config.yaml                 # 账号配置
-│   ├── resources.md                # 资源索引和说明
-│   └── stocks_pool.json            # 股票池配置
-├── main.py                         # aacode主程序
-├── main_quan_tr.py                 # QuanTr主程序（待实现）
-├── README.md                       # 本项目文档
-└── README_aacode.md                # aacode原文档
-```
-
-## 架构说明（aacode >= 1.8.17 薄封装）
-
-QuanTr 不再内嵌框架代码，而是作为 **aacode 的薄封装**运行：
-
-- 框架（`MainAgent` / `ContextManager` / `SafetyGuard` / 工具 / 上下文策略）统一从 `aacode` 包导入，要求 `aacode>=1.8.17`。
-- 项目特有的量化逻辑只保留在 `main_quan_tr.py` 与 `quan_tr/`（含 `init.md`、`programs/` 等）。
-- 旧的 1.7.7 内嵌副本已移动到 `_legacy_vendored_1.7.7/`，仅供对照，不再参与运行。
-- 量化指令 `quan_tr/init.md` 会在构造 `MainAgent` 时自动注入系统提示。
-- 长任务（数据抓取/回测）使用 `run_shell` 的后台任务能力；会话很长时可通过 history 工具检索被裁剪的历史。
-
-安装依赖：`pip install -r requirements.txt`（会拉取 `aacode>=1.8.17`）。
-
-**对外接口（同一套确定性引擎，多种封装）**
-- CLI：`./quantr --help`（`fetch/store/indicators/factors/backtest/validate/pipeline/skill`，统一 JSON 输出）
-- MCP：`python -m quantr.mcp_server`（stdio，工具名见 `--list`）
-- Library：`from api import Quantr` / `from service import factors, backtest, pipeline`
-- Skill：`./quantr skill install`，之后 agent 可通过 `run_skills("quan_tr", ...)` 调用
-
-**数据契约 v2**：`quan_tr/analysis_results/templates/stocks_analysis.schema.json`（JSON Schema 2020-12）
-是唯一契约源；`stocks_analysis.example.json` 为真实取值示例。`validate --strict` 会做 schema + 跨字段一致性 + 数据真实性门禁（报告自称 `real` 无法绕过审计）。旧 v1 报告可用 `--allow-v1` 兼容校验。
-
-**数据与组合**：本地 PIT 数据仓（Parquet + DuckDB，OHLCV 多版本 `ingest_time`、财报 `report_date/announce_date`）；PIT 成分股（`store/universe/`）；pipeline 输出横截面 `ranking` 与 `portfolio`（选股/权重/现金），并自动接入真实 `benchmark`（A股 000300.SH / 美股 SPY，离线缺失则跳过）。契约版本 2.1.0。
-
-## 工作流程
-
-### 每日分析流程
-1. **准备阶段**：检查并准备所需的数据获取程序和分析工具，如果过往已经有一些回测的结果，会根据回测结果自主优化程序和分析工具
-2. **股票分析**：对股票池中的每只股票进行独立分析，生成详细分析报告
-3. **结果汇总**：将所有股票分析结果汇总为结构化数据（JSON）
-4. **策略生成**：基于分析结果生成交易策略建议
-5. **报告输出**：生成每日分析报告和策略建议
-
-### 产出物
-- **原始数据文件**：从各数据源获取的原始数据
-- **股票分析报告**：每只股票的详细分析（`stock_<名称>_<代码>_analysis.md`）
-- **分析汇总**：结构化汇总数据（`stocks_analysis_<日期>.json`）
-- **回测报告**：近7天分析策略的回测结果（`strategies_backtest_report.md`）
-
-## 数据获取渠道
-
-### 数据接口
-- **AKshare**：纯Python开源库，免费爬取各大财经网站数据
-- **东方财富**：国内股票数据
-- **Yahoo Finance**：国际通用，覆盖全球股市数据
-- **Ptrade**：专业交易数据接口
-
-### 知识库资源(后续扩充)
-- 自建知识库（笔记文档等）
-- 向量数据库
-- 本地文件（Markdown、Word、PDF、Excel等）
-- 股票历史数据库
-
-### 信息源
-- 上市公司财报（年度、半年度、季度）
-- 证交所公告信息
-- 财经新闻和自媒体
-- 上市公司官网信息
-
-## 分析维度
-
-### 基本面分析
-- **公司经营分析**：治理水平、竞争力、产品技术、行业趋势
-- **财务指标分析**：盈利能力、流动性、资产负债状况
-- **行业分析**：生命周期、竞争结构、监管环境
-- **宏观经济**：经济增长、货币政策、市场利率、通货膨胀
-- **风险分析**：重点风险识别与评估
-
-### 技术面分析
-- **价值评估**：合理估值、价格走向预测
-- **价格分析**：历史高位低位、当前地位判断
-- **技术指标**：市盈率对比、换手率、成交率等
-- **趋势分析**：K线理论、形态理论、波浪理论
-
-### 分析方法
-- **基本分析法**：经济学、金融学、财务管理学
-- **技术分析法**：各类技术指标和图表分析
-- **量化分析法**：证券估值、组合优化、风险计量
-
-## 交易建议
-
-### 买入卖出建议
-- **低位区间判断**：识别股票的合理买入区间
-- **量化评分系统**：对买入卖出时机进行量化评分
-- **操作周期建议**：半月、一月、半年、长期等不同周期
-- **当日判断**：横向对比当日买入机会
-
-### 策略特点
-- **中低频交易**：至少半月周期的交易策略
-- **人工执行**：仅提供策略建议，不进行自动化交易
-- **风险控制**：强调风险识别和资金管理
-
-## 使用方式
-
-### 常规使用
-```bash
-python3 main_quan_tr.py
-# 或
-python3 main_quan_tr.py --normal
-```
-
-### 重新分析
-```bash
-# 当日重新分析
-python3 main_quan_tr.py --rewrite
-```
-
-### 策略回测
-```bash
-# 回测近一周（7天）的分析策略
-python3 main_quan_tr.py --backtest
-# 或
-python3 main_quan_tr.py --backtest_weekly
-
-# 回测近一个月的分析策略
-python3 main_quan_tr.py --backtest_monthly
-```
-
-## 配置说明
-
-### 股票池配置
-编辑 `quan_tr/stocks_pool.json` 文件配置要分析的股票：
-```json
-{
-  "version": "2.0",
-  "description": "QuanTr股票池",
-  "last_updated": "2026-02-01T16:30:00",
-  "stocks": [
-    {
-      "symbol": "000001.SZ",
-      "name": "平安银行",
-      "industry": "银行",
-      "tags": ["蓝筹股", "金融", "高股息"],
-      "resources": [
-        {
-          "type": "官网",
-          "url": "..."
-        }
-      ],
-      "files": [
-        {
-          "type": "上市公司年报",
-          "file_path": ""
-        }
-      ]
-    }
-  ]
-}
-```
-
-### 资源配置
-- **config.yaml**：数据接口的账号密码配置
-- **resources.md**：资源索引和说明文档
-- **init.md**：项目初始化配置和编程规范
-
-## 开发计划
-
-### 短期目标
-- 实现基础数据获取功能
-- 完成核心分析维度的实现
-- 建立基本的工作流程
-- 实现策略回测功能
-
-### 中长期目标
-- 完善分析算法和模型
-- 扩展数据源和分析维度
-- 优化用户体验和性能
-- 增加更多定制化功能
-
-## 开源说明
-
-### 使用限制
-- 仅用于学习和研究目的
-- 不提供自动化交易功能
-- 用户需自行承担投资风险
-- 建议结合人工判断使用
-
-### 贡献指南
-欢迎提交Issue和Pull Request，共同完善QuanTr系统。
-
-## 许可证
-本项目为xiefujin（github: kandada，邮箱490021684@qq.com）发起并开发做出第一版，采用 GPL3.0 许可证，所有衍生作品必须同样以GPL开源。[license][https://github.com/kandada/aacode/blob/main/LICENSE]
-
-## 相关文档
-- [README_aacode.md](README_aacode.md) - aacode框架原文档
+- 引擎（`src/quantr`）不依赖 LLM，可独立安装/调用。
+- 可选的自主分析 agent（`agent/`）基于 [aacode](https://pypi.org/project/aacode/)。
+- 行情数据只落在本地，**发布包内不含任何市场数据**。
 
 ---
 
-**免责声明**：本系统提供的分析结果和策略建议仅供参考，不构成投资建议。股市有风险，投资需谨慎。
+## 安装
+
+```bash
+pip install quantr-engine                  # 引擎 + CLI
+pip install "quantr-engine[mcp]"           # 可选：MCP server
+pip install "quantr-engine[agent]"         # 可选：aacode 自主分析
+pip install "quantr-engine[talib]"         # 可选：TA-Lib 数值对齐测试
+```
+
+要求 Python >= 3.10。分发名是 `quantr-engine`，导入名是 `quantr`，命令是 `quantr`。
+
+## 快速开始
+
+```bash
+quantr --version
+quantr doctor                       # 环境 / 工作区自检
+
+quantr init my-research && cd my-research
+quantr fetch --pool --save          # 按 stocks_pool.json 抓真实行情（失败即报错，不造数）
+quantr factors --symbol 000001.SZ   # 确定性评分与建议
+quantr pipeline --offline           # 因子 → 报告 → manifest → 校验
+quantr validate --date <today> --strict
+```
+
+`quantr init` 会生成：`init.md`、`config.yaml`、`stocks_pool.json`、`analysis_results/templates/`、
+`store/`、`programs/`、`skills/quan_tr/`、`.gitignore`。
+
+## 命令一览
+
+所有命令支持 `--json`，返回统一契约：
+
+```json
+{"ok": true,  "command": "factors", "result": { "...": "..." }}
+{"ok": false, "command": "factors", "error": "...", "hint": "..."}
+```
+
+| 命令 | 作用 | 关键参数 |
+|---|---|---|
+| `quantr init [dir]` | 初始化工作区（目录/模板/skill/配置） | `--force` |
+| `quantr doctor` | 环境与工作区自检（版本/依赖/数据仓/提示） | `--base-dir` |
+| `quantr fetch` | 抓取真实行情到本地数据仓 | `--symbols` / `--pool`, `--start/--end`, `--source`, `--no-save` |
+| `quantr store` | 列出数据仓（含 `[SIMULATED]` 标记） | |
+| `quantr indicators` | 技术指标快照（MA/RSI/MACD/BOLL/ATR/支撑阻力…） | `--symbol` |
+| `quantr factors` | 确定性评分 + 建议（买入门禁） | `--symbol`, `--fundamentals-file` |
+| `quantr backtest` | 成本回测 / walk-forward | `--symbol`, `--walk-forward`, `--signals-file` |
+| `quantr pipeline` | 取数→因子→排名/组合→报告→校验 | `--date`, `--symbols/--pool`, `--offline`, `--universe`, `--portfolio-top-n` |
+| `quantr validate` | 契约 v2 校验（schema + 不变量 + 数据门禁） | `--date`, `--strict`, `--allow-v1` |
+| `quantr skill` | 安装/定位 agent skill | `install` / `path`, `--dest` |
+
+### MCP
+
+```bash
+python -m quantr.mcp_server          # stdio
+python -m quantr.mcp_server --list   # 打印工具 schema
+```
+
+工具：`fetch_ohlcv`、`list_store`、`compute_indicators`、`compute_factors`、
+`run_backtest`、`validate_report`、`run_pipeline`。
+
+客户端配置示例：
+
+```json
+{"mcpServers":{"quantr":{"command":"python3","args":["-m","quantr.mcp_server"]}}}
+```
+
+### Library
+
+```python
+from quantr.api import Quantr
+q = Quantr(base_dir="my-research")
+q.fetch(["000001.SZ"], save=True)
+print(q.factors("000001.SZ")["action"])
+print(q.pipeline(offline=True)["validation"]["ok"])
+```
+
+或直接用稳定函数层：`from quantr.service import fetch, factors, backtest, pipeline, validate`。
+
+### Skill（给 agent）
+
+```bash
+quantr skill install     # 安装到 aacode 用户 skills 目录
+```
+
+之后 aacode 可通过 `run_skills("quan_tr", ...)` 使用；skill 会强制“真实数据 + `validate --strict`”。
+
+---
+
+## 项目结构
+
+```
+QuanTr/
+├── src/quantr/            # PyPI 包：确定性引擎 + CLI + MCP + templates/skill
+├── tests/                 # 契约 / 引擎 / PIT / 打包测试
+├── agent/                 # 可选：基于 aacode 的自主分析入口
+│   ├── main_quan_tr.py
+│   ├── aacode_config.yaml
+│   ├── cron_run_quan_tr.py / .sh
+│   └── README.md
+├── examples/workspace/    # 参考工作区（`quantr init` 生成同构）
+├── docs/                  # 文档；legacy/ 为 aacode 旧文档
+├── scripts/run_agent.sh
+├── pyproject.toml / MANIFEST.in / requirements.txt
+├── README.md / CHANGELOG.md / LICENSE / .gitignore
+└── quantr                 # 仓库内 CLI shim（等价于安装后的 quantr）
+```
+
+## 数据层（PIT / 可审计）
+
+- **OHLCV**：`store/ohlcv/<symbol>.parquet`（DuckDB 读写 Parquet，无需 pyarrow）。
+  追加式多版本，行带 `ingest_time`；`load_ohlcv(..., ingest_as_of=T)` 只读取 T 之前已知的版本。
+- **财报**：`store/fundamentals/<symbol>.parquet`，同时记录 `report_date` 与 `announce_date`；
+  `load_fundamentals(as_of=T)` 只使用 `announce_date <= T` 的报告（防前视偏差）。
+- **成分股**：`store/universe/<index>.csv`（`symbol,start_date,end_date`），
+  `quantr pipeline --universe <index>` 只分析当日成员（避免幸存者偏差）。
+- **来源与真实性**：`data_files/<date>/manifest.json` + `data_quality`，模拟数据会被标记并在门禁中拦截。
+- **as_of**：取真实数据截止日（非交易日回退最近交易日），不会谎报“今天”。
+
+## 数据契约（v2.1）
+
+- 唯一契约源：`analysis_results/templates/stocks_analysis.schema.json`（JSON Schema 2020-12）；
+  工作区模板优先，缺失时用包内同源模板。
+- 约定：`schema_version: "2.x"`；`market ∈ {SH,SZ,BJ,HK,US}`；`*_pct` 为百分数；
+  `market_cap_cny`；缺失写 `null`（禁止用 0 冒充缺失）。
+- 风险不歧义：`risk.score` 越高越危险；`scores.risk_safety` 越高越安全。
+- 校验器：schema + 跨字段不变量（派生字段一致性、action/overall 一致性、target/stop、
+  `as_of<=analysis_date`、代码去重）+ **数据真实性门禁**。
+- **买入门禁取“报告声明”和“审计结果”中更差的状态**，报告自称 `real` 无法绕过模拟数据审计。
+- 旧 v1 报告需 `--allow-v1`（仅警告）。
+
+## 回测与组合
+
+- T+1 执行、佣金/滑点/印花税、仓位上限。
+- 指标：总收益、CAGR、最大回撤、Sharpe、Sortino、Calmar、胜率、盈亏比、持仓天数、暴露度。
+- `walk-forward`：MA 参数网格在训练区间选择、测试区间评估。
+- 基准：A股默认 `000300.SH`，美股默认 `SPY`；离线缺失则跳过（不造假）。
+- 横截面 `ranking` + `portfolio`（score/equal 权重、top-N、现金）。
+- 不引入 vectorbt/backtrader：内置引擎已覆盖成本/基准/walk-forward，够用。
+
+## 自主分析 agent（可选）
+
+```bash
+pip install -e ".[agent,mcp]"
+cp .env.example .env            # 填 LLM_API_KEY / LLM_API_URL / LLM_MODEL_NAME
+python3 agent/main_quan_tr.py   # 默认工作区 examples/workspace
+scripts/run_agent.sh --backtest
+```
+
+- `agent/aacode_config.yaml` 通过 `AACODE_CONFIG_FILE` 固定加载，cwd 无关。
+- 定时任务：`bash agent/cron_run_quan_tr.sh -t 10:00`（日志在 `<workspace>/cron_run_quan_tr.log`）。
+- Agent 只做规划/解释；数值来自 `quantr`，完成前必须 `quantr validate --strict`。
+
+## 开发与发布
+
+```bash
+pip install -e ".[dev,agent,mcp]"
+python3 -m pytest -q
+python3 -m build
+python3 -m twine check dist/*
+python3 -m twine upload --repository testpypi dist/*   # 可选
+python3 -m twine upload dist/*
+```
+
+版本号单一来源：`pyproject.toml` 与 `src/quantr/__init__.py` 必须一致（有测试强制）。
+发版流程见 [CHANGELOG.md](CHANGELOG.md)。
+
+## 已知边界
+
+- **不提供行情数据**：数据需自行抓取（AKshare/Yahoo）或导入；请遵守数据源授权。
+- **不自动拉取成分股/财报 vendor 数据**：用 `universe` CSV + `save_fundamentals` 自行接入。
+- **不执行交易**：只做研究分析，输出风险提示与建议。
+- **TA-Lib 可选**：未安装时用独立参考实现做 golden 测试；安装后自动追加对齐测试。
+- 回测不代表未来收益；过拟合与幸存者偏差仍需自行警惕。
+
+## 免责声明
+
+本项目仅用于研究与教育，**不构成任何投资建议**。市场有风险，决策需谨慎。
+
+## License
+
+GPL-3.0-or-later，见 [LICENSE](LICENSE)。
