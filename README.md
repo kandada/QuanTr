@@ -167,19 +167,6 @@ scripts/run_agent.sh --backtest
 - 定时任务：`bash agent/cron_run_quan_tr.sh -t 10:00`（日志在 `<workspace>/cron_run_quan_tr.log`）。
 - Agent 只做规划/解释；数值来自 `quantr`，完成前必须 `quantr validate --strict`。
 
-## 开发与发布
-
-```bash
-pip install -e ".[dev,agent,mcp]"
-python3 -m pytest -q
-python3 -m build
-python3 -m twine check dist/*
-python3 -m twine upload --repository testpypi dist/*   # 可选
-python3 -m twine upload dist/*
-```
-
-版本号单一来源：`pyproject.toml` 与 `src/quantr/__init__.py` 必须一致（有测试强制）。
-发版流程见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 已知边界
 
